@@ -1,0 +1,78 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User synced from Clerk
+model User {
+  id        String   @id // Clerk user ID
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  comics    Comic[]
+}
+
+// A webcomic series
+model Comic {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  slug        String   @unique // For subdomain/URL
+  thumbnail   String?  // Cover image URL
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  chapters    Chapter[]
+  pages       Page[]    // Pages without chapters go here directly
+  
+  @@index([userId])
+}
+
+// Optional chapter grouping
+model Chapter {
+  id          String   @id @default(cuid())
+  title       String
+  number      Int      // Sequential order (1, 2, 3...)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  comicId     String
+  comic       Comic    @relation(fields: [comicId], references: [id], onDelete: Cascade)
+  
+  pages       Page[]
+  
+  @@unique([comicId, number]) // Each comic has unique chapter numbers
+  @@index([comicId])
+}
+
+// Individual comic page
+model Page {
+  id          String   @id @default(cuid())
+  imageUrl    String   // S3/CDN URL to the page image
+  number      Int      // Sequential order within chapter or comic
+  altText     String?  // Accessibility
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  comicId     String
+  comic       Comic    @relation(fields: [comicId], references: [id], onDelete: Cascade)
+  
+  chapterId   String?  // NULL if page belongs directly to comic (no chapters)
+  chapter     Chapter? @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  
+  // Ensure unique page numbers within their context
+  @@unique([comicId, chapterId, number]) // Unique within chapter OR comic if no chapter
+  @@index([comicId])
+  @@index([chapterId])
+}
