@@ -6,7 +6,7 @@ services:
     container_name: webcomicstudio-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: webcomicstudio
       POSTGRES_PASSWORD: dev_password_change_in_production
