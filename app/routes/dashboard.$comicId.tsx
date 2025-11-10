@@ -1,5 +1,5 @@
 import type { Route } from "./+types/dashboard.$comicId";
-import { redirect } from "react-router";
+import { redirect, Link } from "react-router";
 import { prisma } from "../utils/db.server";
 import { getAuth } from "@clerk/react-router/server";
 
@@ -49,6 +49,12 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
     <main className="mx-auto max-w-5xl px-4 py-10">
       <div className="flex items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold tracking-tight">{comic.title}</h1>
+        <Link
+          to={`/dashboard/${comic.id}/update`}
+          className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition"
+        >
+          Add Pages
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
