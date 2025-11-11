@@ -133,6 +133,9 @@ export async function action(args: Route.ActionArgs) {
     const files = formData.getAll("pages") as File[];
     if (files.length === 0) return new Response("No files uploaded", { status: 400 });
 
+    // Sort files alphabetically by filename
+    const sortedFiles = files.slice().sort((a, b) => a.name.localeCompare(b.name));
+
     // Check for new chapter title or existing chapter selection
     const newChapterTitle = String(formData.get("newChapterTitle") || "").trim();
     const selectedChapterId = String(formData.get("chapterId") || "").trim();
@@ -169,8 +172,8 @@ export async function action(args: Route.ActionArgs) {
   const { uploadBufferToS3 } = await import("../utils/s3.server");
   const { convertToWebP } = await import("../utils/image.server");
 
-  for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+  for (let i = 0; i < sortedFiles.length; i++) {
+      const file = sortedFiles[i];
       const pageNumber = nextPageNumber + i;
       // Convert to WebP in-memory
       const original = Buffer.from(await file.arrayBuffer());

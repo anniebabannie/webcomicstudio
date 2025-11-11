@@ -158,8 +158,13 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
               <>
                 <ul className="mt-2 space-y-1 text-sm">
                   {comic.chapters.map(ch => (
-                    <li key={ch.id} className="text-gray-700 dark:text-gray-300">
-                      Chapter {ch.number}: {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
+                    <li key={ch.id}>
+                      <Link 
+                        to={`/dashboard/${comic.id}/${ch.id}`}
+                        className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      >
+                        Chapter {ch.number}: {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
+                      </Link>
                     </li>
                   ))}
                 </ul>

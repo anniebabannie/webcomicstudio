@@ -6,4 +6,5 @@ export default [
     route("/dashboard/new", "routes/dashboard.new.tsx"),
     route("/dashboard/:comicId", "routes/dashboard.$comicId.tsx"),
     route("/dashboard/:comicId/update", "routes/dashboard.$comicId.update.tsx"),
+    route("/dashboard/:comicId/:chapterId", "routes/dashboard.$comicId.$chapterId.tsx"),
 ] satisfies RouteConfig;
