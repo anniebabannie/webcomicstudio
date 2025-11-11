@@ -52,7 +52,6 @@ export default function App({ loaderData }: Route.ComponentProps) {
   return (
     // Pass the `loaderData` to the `<ClerkProvider>` component
     <ClerkProvider loaderData={loaderData}>
-      <NavBar />
       <Outlet />
     </ClerkProvider>
   )

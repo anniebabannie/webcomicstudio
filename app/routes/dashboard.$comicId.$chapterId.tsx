@@ -1,6 +1,6 @@
 import type { Route } from "./+types/dashboard.$comicId.$chapterId";
-import { redirect, Link } from "react-router";
-import { useState, useCallback } from "react";
+import { redirect, Link, useFetcher, useLocation, useNavigate } from "react-router";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   DndContext,
   closestCenter,
@@ -34,10 +34,17 @@ export async function loader(args: Route.LoaderArgs) {
   const { comicId, chapterId } = args.params;
   if (!comicId || !chapterId) throw new Response("Not Found", { status: 404 });
 
-  // Verify comic ownership
+  // Verify comic ownership and gather all chapters (for move UI later)
   const comic = await prisma.comic.findFirst({
     where: { id: comicId, userId },
-    select: { id: true, title: true },
+    select: {
+      id: true,
+      title: true,
+      chapters: {
+        select: { id: true, number: true, title: true },
+        orderBy: { number: "asc" },
+      },
+    },
   });
   if (!comic) return redirect("/dashboard");
 
@@ -64,8 +71,86 @@ export async function loader(args: Route.LoaderArgs) {
   return { comic, chapter };
 }
 
+export async function action(args: Route.ActionArgs) {
+  const { request, params } = args;
+  const { userId } = await getAuth(args);
+  if (!userId) return redirect("/");
+  const { comicId, chapterId } = params;
+  if (!comicId || !chapterId) throw new Response("Not Found", { status: 404 });
+
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+  if (intent === "saveOrder") {
+    const orderedJson = formData.get("ordered");
+    if (typeof orderedJson !== "string") return new Response("Bad Request", { status: 400 });
+    let ordered: string[];
+    try {
+      ordered = JSON.parse(orderedJson);
+    } catch {
+      return new Response("Invalid payload", { status: 400 });
+    }
+    if (!Array.isArray(ordered) || ordered.some((v) => typeof v !== "string")) {
+      return new Response("Invalid payload", { status: 400 });
+    }
+  
+    // Verify comic ownership and chapter existence
+    const comic = await prisma.comic.findFirst({ where: { id: comicId, userId }, select: { id: true } });
+    if (!comic) return redirect("/dashboard");
+  
+    const pages = await prisma.page.findMany({ where: { chapterId }, select: { id: true } });
+    const pageIds = new Set(pages.map((p) => p.id));
+    if (ordered.length !== pages.length) {
+      return new Response("Mismatched list length", { status: 400 });
+    }
+    // Ensure all ids belong to this chapter
+    for (const id of ordered) {
+      if (!pageIds.has(id)) return new Response("Invalid page id", { status: 400 });
+    }
+  
+    // Two-phase renumber to avoid unique conflicts: temp bump, then final set
+    const bump = 1000;
+    const tempUpdates = ordered.map((id, index) =>
+      prisma.page.update({ where: { id }, data: { number: index + 1 + bump } })
+    );
+    const finalUpdates = ordered.map((id, index) =>
+      prisma.page.update({ where: { id }, data: { number: index + 1 } })
+    );
+  
+    await prisma.$transaction(tempUpdates);
+    await prisma.$transaction(finalUpdates);
+  
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  if (intent === "deleteSelected") {
+    const selectedJson = formData.get("selected");
+    if (typeof selectedJson !== "string") return new Response("Bad Request", { status: 400 });
+    let selected: string[];
+    try {
+      selected = JSON.parse(selectedJson);
+    } catch {
+      return new Response("Invalid payload", { status: 400 });
+    }
+    if (!Array.isArray(selected) || selected.length === 0) {
+      return redirect(`/dashboard/${comicId}/${chapterId}`);
+    }
+
+    // Verify comic ownership
+    const comic = await prisma.comic.findFirst({ where: { id: comicId, userId }, select: { id: true } });
+    if (!comic) return redirect("/dashboard");
+
+    // Only delete pages that belong to this chapter
+    const result = await prisma.page.deleteMany({ where: { id: { in: selected }, chapterId } });
+
+    // Redirect back to refresh list
+    return redirect(`/dashboard/${comicId}/${chapterId}?deleted=${result.count || 0}`);
+  }
+
+  return new Response("Bad Request", { status: 400 });
+}
+
 // Sortable grid item wrapper
-function SortablePageItem({ id, imageUrl, pageNumber }: { id: string; imageUrl: string; pageNumber: number }) {
+function SortablePageItem({ id, imageUrl, displayNumber }: { id: string; imageUrl: string; displayNumber: number }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -83,7 +168,7 @@ function SortablePageItem({ id, imageUrl, pageNumber }: { id: string; imageUrl: 
       {imageUrl ? (
         <img
           src={imageUrl}
-          alt={`Page ${pageNumber}`}
+          alt={`Page ${displayNumber}`}
           className="h-full w-full object-cover"
           draggable={false}
         />
@@ -91,38 +176,47 @@ function SortablePageItem({ id, imageUrl, pageNumber }: { id: string; imageUrl: 
         <div className="flex h-full w-full items-center justify-center text-[10px] bg-gray-200 dark:bg-gray-700">No image</div>
       )}
       <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-white px-1 py-0.5 leading-none font-medium">
-        Page {pageNumber}
+        Page {displayNumber}
       </div>
     </div>
   );
 }
 
 // Drag overlay visual
-function DragOverlayItem({ imageUrl, pageNumber }: { imageUrl: string; pageNumber: number }) {
+function DragOverlayItem({ imageUrl, displayNumber }: { imageUrl: string; displayNumber: number }) {
   return (
     <div className="relative aspect-[2/3] w-24 rounded-md overflow-hidden border border-indigo-400 bg-white dark:bg-gray-800 shadow-lg">
       {imageUrl ? (
-        <img src={imageUrl} alt={`Page ${pageNumber}`} className="h-full w-full object-cover" />
+        <img src={imageUrl} alt={`Page ${displayNumber}`} className="h-full w-full object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-[10px] bg-gray-200 dark:bg-gray-700">No image</div>
       )}
       <div className="absolute bottom-0 left-0 right-0 bg-indigo-600/80 text-[10px] text-white px-1 py-0.5 leading-none font-semibold">
-        Page {pageNumber}
+        Page {displayNumber}
       </div>
     </div>
   );
 }
 
 export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
-  const data = loaderData as { comic: { id: string; title: string }; chapter: { id: string; number: number; title: string; pages: { id: string; number: number; imageUrl: string }[] } } | undefined;
+  const data = loaderData as { comic: { id: string; title: string; chapters: { id: string; number: number; title: string }[] }; chapter: { id: string; number: number; title: string; pages: { id: string; number: number; imageUrl: string }[] } } | undefined;
   
   if (!data) {
     throw new Response("Not Found", { status: 404 });
   }
 
   const { comic, chapter } = data;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const deletedParam = new URLSearchParams(location.search).get("deleted");
+  const deletedCount = deletedParam ? parseInt(deletedParam, 10) : 0;
 
   const [reorderMode, setReorderMode] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
+  const [modalPage, setModalPage] = useState<{ imageUrl: string; number: number } | null>(null);
+  const fetcher = useFetcher();
+  const lastIntentRef = useRef<string | null>(null);
   // Local sortable order of page ids (no persistence yet)
   const [items, setItems] = useState<string[]>(() => chapter.pages.map(p => p.id));
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -144,8 +238,76 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
   }, []);
   const handleDragCancel = useCallback(() => setActiveId(null), []);
 
+  // After successful save, exit reorder mode
+  useEffect(() => {
+    if (fetcher.state === "idle" && (fetcher.data as any)?.ok) {
+      setReorderMode(false);
+    }
+  }, [fetcher.state, fetcher.data]);
+
+  // Track last submitted intent
+  useEffect(() => {
+    if (fetcher.formData) {
+      const intent = fetcher.formData.get("intent");
+      if (typeof intent === "string") lastIntentRef.current = intent;
+    }
+  }, [fetcher.formData]);
+
+  // After deleteSelected redirect completes, exit select mode and clear selection
+  useEffect(() => {
+    if (fetcher.state === "idle" && lastIntentRef.current === "deleteSelected") {
+      setSelectMode(false);
+      setSelectedPages(new Set());
+      lastIntentRef.current = null;
+    }
+  }, [fetcher.state]);
+
+  // Close modal on Escape key
+  useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (!modalPage) return;
+      
+      if (e.key === "Escape") {
+        setModalPage(null);
+      } else if (e.key === "ArrowLeft") {
+        // Previous page
+        const currentIndex = chapter.pages.findIndex(p => p.number === modalPage.number);
+        if (currentIndex > 0) {
+          const prevPage = chapter.pages[currentIndex - 1];
+          setModalPage({ imageUrl: prevPage.imageUrl, number: prevPage.number });
+        }
+      } else if (e.key === "ArrowRight") {
+        // Next page
+        const currentIndex = chapter.pages.findIndex(p => p.number === modalPage.number);
+        if (currentIndex < chapter.pages.length - 1) {
+          const nextPage = chapter.pages[currentIndex + 1];
+          setModalPage({ imageUrl: nextPage.imageUrl, number: nextPage.number });
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [modalPage, chapter.pages]);
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-10">
+      {deletedCount > 0 && (
+        <div className="mb-4 rounded-md border border-green-700/30 bg-green-600/15 text-green-800 px-3 py-2 text-sm flex items-center justify-between">
+          <span>
+            {deletedCount} page{deletedCount === 1 ? "" : "s"} deleted
+          </span>
+          <button
+            className="ml-3 text-green-800 hover:text-white underline decoration-dotted"
+            onClick={() => {
+              const url = new URL(location.pathname, window.location.origin);
+              navigate(url.pathname);
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="mb-4 flex items-center justify-between">
         <Link
           to={`/dashboard/${comic.id}`}
@@ -153,18 +315,96 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
         >
           <span className="mr-1">←</span> Back to {comic.title}
         </Link>
-        <button
-          type="button"
-          onClick={() => setReorderMode(r => !r)}
-          className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white transition"
-        >
-          {reorderMode ? "Done" : "Reorder pages"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setReorderMode(r => !r)}
+            className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white transition"
+          >
+            {reorderMode ? "Done" : "Reorder pages"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectMode(s => !s)}
+            disabled={reorderMode}
+            className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              reorderMode
+                ? "bg-gray-100 dark:bg-gray-900 text-gray-400 cursor-not-allowed"
+                : selectMode
+                ? "bg-indigo-600 text-white hover:bg-indigo-500"
+                : "bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+            }`}
+          >
+            Select
+          </button>
+          {selectMode && (
+            <div className="flex items-center gap-2">
+              {/* Delete Selected (UI only for now) */}
+              <fetcher.Form
+                method="post"
+                className="inline-flex"
+                onSubmit={(e) => {
+                  if (selectedPages.size === 0) {
+                    e.preventDefault();
+                    return;
+                  }
+                  const plural = selectedPages.size === 1 ? "page" : "pages";
+                  const ok = confirm(`Delete ${selectedPages.size} ${plural}? This cannot be undone.`);
+                  if (!ok) {
+                    e.preventDefault();
+                  }
+                }}
+              >
+                <input type="hidden" name="intent" value="deleteSelected" />
+                <input type="hidden" name="selected" value={JSON.stringify([...selectedPages])} />
+                <button
+                  type="submit"
+                  disabled={selectedPages.size === 0 || fetcher.state !== 'idle'}
+                  className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-red-600 text-white hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {fetcher.state !== 'idle' ? 'Deleting…' : 'Delete selected'}
+                </button>
+              </fetcher.Form>
+              {/* Move To Chapter (UI only) */}
+              <form
+                onSubmit={e => {
+                  if (selectedPages.size === 0) { e.preventDefault(); return; }
+                  const formData = new FormData(e.currentTarget);
+                  const target = String(formData.get("targetChapterId") || "");
+                  alert(`Would move ${selectedPages.size} page(s) to chapter ${target || '(none)'} (not implemented).`);
+                  e.preventDefault();
+                }}
+                className="flex items-center gap-1"
+              >
+                <input type="hidden" name="selected" value={JSON.stringify([...selectedPages])} />
+                <label className="sr-only" htmlFor="targetChapterId">Move to chapter</label>
+                <select
+                  id="targetChapterId"
+                  name="targetChapterId"
+                  className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs"
+                  defaultValue=""
+                >
+                  <option value="" disabled>Move to…</option>
+                  {comic.chapters.map(ch => (
+                    <option key={ch.id} value={ch.id}>Chapter {ch.number}: {ch.title}</option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={selectedPages.size === 0}
+                  className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Move
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">
-          Chapter {chapter.number}: {chapter.title}
+          {chapter.title}
         </h1>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           {chapter.pages.length} page{chapter.pages.length !== 1 ? "s" : ""}
@@ -173,7 +413,20 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
 
       {reorderMode && (
         <section className="mb-8 rounded border border-dashed border-gray-300 dark:border-gray-700 p-6 text-sm text-gray-600 dark:text-gray-300">
-          <h2 className="mb-4 text-base font-semibold text-gray-800 dark:text-gray-100">Reorder Pages</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Reorder Pages</h2>
+            <fetcher.Form method="post" className="contents">
+              <input type="hidden" name="intent" value="saveOrder" />
+              <input type="hidden" name="ordered" value={JSON.stringify(items)} />
+              <button
+                type="submit"
+                disabled={fetcher.state !== "idle"}
+                className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {fetcher.state !== "idle" ? "Saving…" : "Save order"}
+              </button>
+            </fetcher.Form>
+          </div>
           <p className="mb-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
             Drag items to change their local order. (Not yet saved.)
           </p>
@@ -186,15 +439,21 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
           >
             <SortableContext items={items} strategy={rectSortingStrategy}>
               <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(6rem, 1fr))", maxWidth: "64rem" }}>
-                {items.map(id => {
+                {items.map((id, idx) => {
                   const page = chapter.pages.find(p => p.id === id);
                   if (!page) return null;
-                  return <SortablePageItem key={id} id={id} imageUrl={page.imageUrl} pageNumber={page.number} />;
+                  const displayNumber = idx + 1;
+                  return <SortablePageItem key={id} id={id} imageUrl={page.imageUrl} displayNumber={displayNumber} />;
                 })}
               </div>
             </SortableContext>
             <DragOverlay adjustScale style={{ transformOrigin: "0 0" }}>
-              {activeId ? (() => { const page = chapter.pages.find(p => p.id === activeId); return page ? <DragOverlayItem imageUrl={page.imageUrl} pageNumber={page.number} /> : null; })() : null}
+              {activeId ? (() => {
+                const page = chapter.pages.find(p => p.id === activeId);
+                if (!page) return null;
+                const displayNumber = items.indexOf(activeId) + 1;
+                return <DragOverlayItem imageUrl={page.imageUrl} displayNumber={displayNumber} />;
+              })() : null}
             </DragOverlay>
           </DndContext>
         </section>
@@ -203,27 +462,126 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
       {!reorderMode && (
         chapter.pages.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {chapter.pages.map((page) => (
-              <div
-                key={page.id}
-                className="relative aspect-[2/3] rounded border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-900 overflow-hidden group"
-              >
-                <img
-                  src={page.imageUrl}
-                  alt={`Page ${page.number}`}
-                  className="h-full w-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <span className="text-white font-medium">Page {page.number}</span>
+            {chapter.pages.map((page) => {
+              const isSelected = selectedPages.has(page.id);
+              return (
+                <div
+                  key={page.id}
+                  onClick={() => {
+                    if (selectMode) {
+                      setSelectedPages(prev => {
+                        const next = new Set(prev);
+                        if (next.has(page.id)) next.delete(page.id); else next.add(page.id);
+                        return next;
+                      });
+                    } else {
+                      setModalPage({ imageUrl: page.imageUrl, number: page.number });
+                    }
+                  }}
+                  className="relative aspect-[2/3] rounded border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-900 overflow-hidden group cursor-pointer"
+                >
+                  <img
+                    src={page.imageUrl}
+                    alt={`Page ${page.number}`}
+                    className="h-full w-full object-cover"
+                  />
+                  {selectMode && (
+                    <div className={`absolute top-1 right-1 h-5 w-5 flex items-center justify-center rounded-full border-2 ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white/70 dark:bg-gray-900/70 border-indigo-500 text-transparent'}`}>
+                      <svg aria-hidden={isSelected ? 'false' : 'true'} className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.704 5.29a1 1 0 0 1 0 1.414l-7.01 7.01a1 1 0 0 1-1.414 0L3.296 8.73a1 1 0 1 1 1.414-1.414l3.17 3.17 6.303-6.303a1 1 0 0 1 1.414 0Z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="text-white font-medium">Page {page.number}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-12 text-gray-500">
             <p>No pages in this chapter yet.</p>
           </div>
         )
+      )}
+
+      {/* Image modal */}
+      {modalPage && (
+        <div
+          onClick={() => setModalPage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+        >
+          {/* Page number indicator */}
+          <div className="absolute top-4 right-16 rounded-full bg-white/10 backdrop-blur px-3 py-1.5 text-sm font-medium text-white">
+            Page {modalPage.number}
+          </div>
+
+          {/* Close button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setModalPage(null);
+            }}
+            className="absolute top-4 right-4 rounded-full bg-white/10 hover:bg-white/20 p-2 text-white backdrop-blur transition"
+            aria-label="Close"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* Previous arrow */}
+          {(() => {
+            const currentIndex = chapter.pages.findIndex(p => p.number === modalPage.number);
+            const hasPrev = currentIndex > 0;
+            return hasPrev ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const prevPage = chapter.pages[currentIndex - 1];
+                  setModalPage({ imageUrl: prevPage.imageUrl, number: prevPage.number });
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 hover:bg-white/20 p-3 text-white backdrop-blur transition z-10"
+                aria-label="Previous page"
+              >
+                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            ) : null;
+          })()}
+
+          <div className="relative max-h-[95vh] max-w-[95vw] flex items-center justify-center">
+            <img
+              src={modalPage.imageUrl}
+              alt={`Page ${modalPage.number}`}
+              className="max-h-[95vh] w-auto object-contain shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+
+          {/* Next arrow */}
+          {(() => {
+            const currentIndex = chapter.pages.findIndex(p => p.number === modalPage.number);
+            const hasNext = currentIndex < chapter.pages.length - 1;
+            return hasNext ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextPage = chapter.pages[currentIndex + 1];
+                  setModalPage({ imageUrl: nextPage.imageUrl, number: nextPage.number });
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 hover:bg-white/20 p-3 text-white backdrop-blur transition z-10"
+                aria-label="Next page"
+              >
+                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            ) : null;
+          })()}
+        </div>
       )}
     </main>
   );

@@ -163,7 +163,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                         to={`/dashboard/${comic.id}/${ch.id}`}
                         className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                       >
-                        Chapter {ch.number}: {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
+                        {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
                       </Link>
                     </li>
                   ))}

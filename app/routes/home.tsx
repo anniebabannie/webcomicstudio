@@ -1,17 +1,157 @@
 import type { Route } from "./+types/home";
 import { SignedOut, SignInButton, SignUpButton } from '@clerk/react-router';
-import { Link } from 'react-router';
+import { Link, redirect } from 'react-router';
+import { extractSubdomain } from '../utils/subdomain.server';
+import { prisma } from '../utils/db.server';
+import { NavBar } from '../components/NavBar';
 
-export function meta({}: Route.MetaArgs) {
+export function meta({ data }: Route.MetaArgs) {
+  if (data?.comic) {
+    return [
+      { title: `${data.comic.title} • Webcomic` },
+      { name: "description", content: data.comic.description || `Read ${data.comic.title}` },
+    ];
+  }
   return [
-    { title: "New React Router App" },
-    { name: "description", content: "Welcome to React Router!" },
+    { title: "WebComic Studio" },
+    { name: "description", content: "Publish your webcomic in minutes" },
   ];
 }
 
-export default function Home() {
+export async function loader({ request }: Route.LoaderArgs) {
+  const host = request.headers.get("host");
+  console.log("Host header:", host);
+  const subdomain = extractSubdomain(host);
+
+  if (subdomain) {
+    // Look up comic by slug
+    const comic = await prisma.comic.findUnique({
+      where: { slug: subdomain },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnail: true,
+        chapters: {
+          select: {
+            id: true,
+            number: true,
+            title: true,
+            pages: {
+              select: {
+                id: true,
+                number: true,
+              },
+              orderBy: { number: 'asc' },
+              take: 1,
+            },
+          },
+          orderBy: { number: 'asc' },
+        },
+        pages: {
+          select: {
+            id: true,
+            number: true,
+            chapterId: true,
+          },
+          where: { chapterId: null },
+          orderBy: { number: 'asc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!comic) {
+      throw new Response("Comic not found", { status: 404 });
+    }
+
+    console.log("Loaded comic for subdomain:", comic);
+    return { type: 'comic' as const, comic };
+  }
+
+  // Root domain - show marketing page
+  return { type: 'admin' as const };
+}
+
+export default function Home({ loaderData }: Route.ComponentProps) {
+  // If this is a comic subdomain, show public comic homepage
+  if (loaderData.type === 'comic') {
+    const { comic } = loaderData;
+    
+    // Determine the first page URL
+    let firstPageUrl: string | null = null;
+    if (comic.chapters.length > 0 && comic.chapters[0].pages.length > 0) {
+      // First page of first chapter
+      const firstChapter = comic.chapters[0];
+      const firstPage = firstChapter.pages[0];
+      firstPageUrl = `/${firstChapter.id}/${firstPage.number}`;
+    } else if (comic.pages.length > 0) {
+      // First standalone page (no chapter)
+      const firstPage = comic.pages[0];
+      firstPageUrl = `/page/${firstPage.number}`;
+    }
+    
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col">
+        {/* Header */}
+        <header className="bg-gray-950 border-b border-gray-800 px-4 py-3">
+          <div className="mx-auto max-w-7xl">
+            <h1 className="text-lg font-semibold text-white">{comic.title}</h1>
+          </div>
+        </header>
+
+        {/* Main content - centered cover */}
+        <main className="flex-1 flex items-center justify-center p-4">
+          {comic.thumbnail ? (
+            firstPageUrl ? (
+              <Link to={firstPageUrl} className="block relative group">
+                <img
+                  src={comic.thumbnail}
+                  alt={`${comic.title} cover`}
+                  className="max-h-[90vh] w-auto"
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition">
+                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-gray-900/90 px-6 py-3 rounded-lg text-base font-semibold transition shadow-xl">
+                    Start Reading →
+                  </span>
+                </div>
+              </Link>
+            ) : (
+              <img
+                src={comic.thumbnail}
+                alt={`${comic.title} cover`}
+                className="max-h-[90vh] w-auto"
+              />
+            )
+          ) : (
+            <div className="w-full max-w-md aspect-[2/3] rounded-lg border-2 border-dashed border-gray-700 flex items-center justify-center bg-gray-950">
+              <p className="text-gray-500">No cover image</p>
+            </div>
+          )}
+        </main>
+
+        {/* Footer navigation */}
+        <footer className="bg-gray-950 border-t border-gray-800 px-4 py-3">
+          <div className="mx-auto max-w-7xl flex items-center justify-center">
+            {firstPageUrl && (
+              <Link
+                to={firstPageUrl}
+                className="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-md transition"
+              >
+                Start Reading →
+              </Link>
+            )}
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
+  // Marketing homepage for root domain
   return(
-    <section className="relative overflow-hidden">
+    <>
+      <NavBar />
+      <section className="relative overflow-hidden">
       <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
         <div className="grid items-center gap-10 lg:grid-cols-2">
           <div>
@@ -52,5 +192,6 @@ export default function Home() {
         </div>
       </div>
     </section>
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import type { Route } from "./+types/dashboard.$comicId.update";
+import { useEffect, useRef, useState } from "react";
 import { getAuth } from "@clerk/react-router/server";
 import { redirect, Form, Link } from "react-router";
 import { prisma } from "../utils/db.server";
@@ -26,6 +27,15 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
     chapters: { id: string; number: number; title: string }[];
   };
   const hasChapters = chapters.length > 0;
+  const [showNewChapter, setShowNewChapter] = useState(false);
+  const newChapterRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (showNewChapter) {
+      // small delay to ensure element is in DOM before focusing
+      const t = setTimeout(() => newChapterRef.current?.focus(), 0);
+      return () => clearTimeout(t);
+    }
+  }, [showNewChapter]);
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
       <div className="mb-2">
@@ -45,9 +55,9 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
               alert("Only JPEG, PNG, or WebP images are allowed.");
               return;
             }
-            if (file.size > 2 * 1024 * 1024) {
+            if (file.size > 3 * 1024 * 1024) {
               e.preventDefault();
-              alert("Each file must be 2MB or smaller.");
+              alert("Each file must be 3MB or smaller.");
               return;
             }
           }
@@ -64,7 +74,7 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
             className="block w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 text-sm"
             required
           />
-          <p className="text-xs text-gray-500">Select JPEG, PNG, or WebP images (max 2MB each).</p>
+          <p className="text-xs text-gray-500">Select JPEG, PNG, or WebP images (max 3MB each).</p>
         </fieldset>
 
         {hasChapters && (
@@ -72,15 +82,50 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
             <legend className="text-sm font-semibold text-gray-500 uppercase">Chapter</legend>
             <select
               name="chapterId"
-              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm"
-              defaultValue=""
+              disabled={showNewChapter}
+              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              defaultValue={chapters[0]?.id ?? ""}
             >
-              <option value="">No Chapter (standalone pages)</option>
               {chapters.map(c => (
                 <option key={c.id} value={c.id}>Chapter {c.number}: {c.title}</option>
               ))}
             </select>
-            <p className="text-xs text-gray-500">Choose a chapter or leave blank.</p>
+
+            {/* Toggle: New Chapter */}
+            {!showNewChapter ? (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewChapter(true)}
+                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                >
+                  <span className="text-base leading-none">＋</span>
+                  New chapter
+                </button>
+              </div>
+            ) : (
+              <div className="pt-2 flex items-center gap-2">
+                <input
+                  ref={newChapterRef}
+                  id="newChapterTitle"
+                  type="text"
+                  name="newChapterTitle"
+                  placeholder="Enter new chapter title"
+                  className="flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newChapterRef.current) newChapterRef.current.value = "";
+                    setShowNewChapter(false);
+                  }}
+                  className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-gray-500">Leave blank to use the selected chapter.</p>
           </fieldset>
         )}
 
