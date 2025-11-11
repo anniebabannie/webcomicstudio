@@ -1,6 +1,24 @@
 import type { Route } from "./+types/dashboard.$comicId.$chapterId";
 import { redirect, Link } from "react-router";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import {
+  DndContext,
+  closestCenter,
+  MouseSensor,
+  TouchSensor,
+  DragOverlay,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { prisma } from "../utils/db.server";
 import { getAuth } from "@clerk/react-router/server";
 
@@ -46,6 +64,55 @@ export async function loader(args: Route.LoaderArgs) {
   return { comic, chapter };
 }
 
+// Sortable grid item wrapper
+function SortablePageItem({ id, imageUrl, pageNumber }: { id: string; imageUrl: string; pageNumber: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || undefined,
+  } as React.CSSProperties;
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`relative select-none rounded-md overflow-hidden border shadow aspect-[2/3] w-24
+        ${isDragging ? "border-indigo-500 ring-2 ring-indigo-300 dark:ring-indigo-700 scale-105" : "border-gray-300 dark:border-gray-600"}`}
+    >
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={`Page ${pageNumber}`}
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[10px] bg-gray-200 dark:bg-gray-700">No image</div>
+      )}
+      <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-white px-1 py-0.5 leading-none font-medium">
+        Page {pageNumber}
+      </div>
+    </div>
+  );
+}
+
+// Drag overlay visual
+function DragOverlayItem({ imageUrl, pageNumber }: { imageUrl: string; pageNumber: number }) {
+  return (
+    <div className="relative aspect-[2/3] w-24 rounded-md overflow-hidden border border-indigo-400 bg-white dark:bg-gray-800 shadow-lg">
+      {imageUrl ? (
+        <img src={imageUrl} alt={`Page ${pageNumber}`} className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[10px] bg-gray-200 dark:bg-gray-700">No image</div>
+      )}
+      <div className="absolute bottom-0 left-0 right-0 bg-indigo-600/80 text-[10px] text-white px-1 py-0.5 leading-none font-semibold">
+        Page {pageNumber}
+      </div>
+    </div>
+  );
+}
+
 export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
   const data = loaderData as { comic: { id: string; title: string }; chapter: { id: string; number: number; title: string; pages: { id: string; number: number; imageUrl: string }[] } } | undefined;
   
@@ -56,6 +123,26 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
   const { comic, chapter } = data;
 
   const [reorderMode, setReorderMode] = useState(false);
+  // Local sortable order of page ids (no persistence yet)
+  const [items, setItems] = useState<string[]>(() => chapter.pages.map(p => p.id));
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor));
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  }, []);
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (active.id && over?.id && active.id !== over.id) {
+      setItems(items => {
+        const oldIndex = items.indexOf(active.id as string);
+        const newIndex = items.indexOf(over.id as string);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+    setActiveId(null);
+  }, []);
+  const handleDragCancel = useCallback(() => setActiveId(null), []);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-10">
@@ -85,9 +172,32 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
       </div>
 
       {reorderMode && (
-        <div className="mb-8 rounded border border-dashed border-gray-300 dark:border-gray-700 p-6 text-sm text-gray-600 dark:text-gray-300">
-          Reorder mode placeholder — drag-and-drop UI coming soon.
-        </div>
+        <section className="mb-8 rounded border border-dashed border-gray-300 dark:border-gray-700 p-6 text-sm text-gray-600 dark:text-gray-300">
+          <h2 className="mb-4 text-base font-semibold text-gray-800 dark:text-gray-100">Reorder Pages</h2>
+          <p className="mb-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+            Drag items to change their local order. (Not yet saved.)
+          </p>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+          >
+            <SortableContext items={items} strategy={rectSortingStrategy}>
+              <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(6rem, 1fr))", maxWidth: "64rem" }}>
+                {items.map(id => {
+                  const page = chapter.pages.find(p => p.id === id);
+                  if (!page) return null;
+                  return <SortablePageItem key={id} id={id} imageUrl={page.imageUrl} pageNumber={page.number} />;
+                })}
+              </div>
+            </SortableContext>
+            <DragOverlay adjustScale style={{ transformOrigin: "0 0" }}>
+              {activeId ? (() => { const page = chapter.pages.find(p => p.id === activeId); return page ? <DragOverlayItem imageUrl={page.imageUrl} pageNumber={page.number} /> : null; })() : null}
+            </DragOverlay>
+          </DndContext>
+        </section>
       )}
 
       {!reorderMode && (
