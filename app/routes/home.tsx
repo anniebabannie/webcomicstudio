@@ -123,9 +123,24 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 className="max-h-[90vh] w-auto"
               />
             )
+          ) : firstPageUrl ? (
+            <Link to={firstPageUrl} className="block relative group">
+              <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-gray-700 bg-gray-900 flex items-center justify-center">
+                <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-gray-100">
+                  {comic.title}
+                </h2>
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition">
+                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-gray-900/90 px-6 py-3 rounded-lg text-base font-semibold transition shadow-xl">
+                    Start Reading →
+                  </span>
+                </div>
+              </div>
+            </Link>
           ) : (
-            <div className="w-full max-w-md aspect-[2/3] rounded-lg border-2 border-dashed border-gray-700 flex items-center justify-center bg-gray-950">
-              <p className="text-gray-500">No cover image</p>
+            <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-gray-700 bg-gray-900 flex items-center justify-center">
+              <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-gray-100">
+                {comic.title}
+              </h2>
             </div>
           )}
         </main>

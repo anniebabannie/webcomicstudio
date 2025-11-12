@@ -1,6 +1,6 @@
 import type { Route } from "./+types/dashboard.$comicId.$chapterId";
 import { redirect, Link, useFetcher, useLocation, useNavigate } from "react-router";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useLayoutEffect } from "react";
 import {
   DndContext,
   closestCenter,
@@ -21,6 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { prisma } from "../utils/db.server";
 import { getAuth } from "@clerk/react-router/server";
+import { getThumbnailUrl } from "../utils/thumbnail";
 
 export function meta({ data }: Route.MetaArgs) {
   return [
@@ -55,6 +56,7 @@ export async function loader(args: Route.LoaderArgs) {
       id: true,
       number: true,
       title: true,
+      publishedDate: true,
       pages: {
         select: {
           id: true,
@@ -107,8 +109,8 @@ export async function action(args: Route.ActionArgs) {
       if (!pageIds.has(id)) return new Response("Invalid page id", { status: 400 });
     }
   
-    // Two-phase renumber to avoid unique conflicts: temp bump, then final set
-    const bump = 1000;
+  // Two-phase renumber to avoid unique conflicts: temp bump, then final set
+  const bump = 10000; // increased to handle very large chapters
     const tempUpdates = ordered.map((id, index) =>
       prisma.page.update({ where: { id }, data: { number: index + 1 + bump } })
     );
@@ -142,8 +144,60 @@ export async function action(args: Route.ActionArgs) {
     // Only delete pages that belong to this chapter
     const result = await prisma.page.deleteMany({ where: { id: { in: selected }, chapterId } });
 
-    // Redirect back to refresh list
+    // Resequence remaining pages to keep numbers contiguous
+    const remaining = await prisma.page.findMany({
+      where: { chapterId },
+      select: { id: true },
+      orderBy: { number: "asc" },
+    });
+
+    if (remaining.length > 0) {
+      const bump = 10000; // increased to handle very large chapters
+      const tempUpdates = remaining.map((p, index) =>
+        prisma.page.update({ where: { id: p.id }, data: { number: index + 1 + bump } })
+      );
+      const finalUpdates = remaining.map((p, index) =>
+        prisma.page.update({ where: { id: p.id }, data: { number: index + 1 } })
+      );
+
+      await prisma.$transaction(tempUpdates);
+      await prisma.$transaction(finalUpdates);
+    }
+
+    // Redirect back to refresh list and show count
     return redirect(`/dashboard/${comicId}/${chapterId}?deleted=${result.count || 0}`);
+  }
+
+  if (intent === "deleteChapter") {
+    // Verify ownership again
+    const comic = await prisma.comic.findFirst({ where: { id: comicId, userId }, select: { id: true } });
+    if (!comic) return redirect("/dashboard");
+
+    // Ensure chapter exists and belongs to comic
+    const chapter = await prisma.chapter.findFirst({ where: { id: chapterId, comicId }, select: { id: true } });
+    if (!chapter) return redirect(`/dashboard/${comicId}`);
+
+    // Delete pages first (in case cascade not set) then chapter
+    await prisma.$transaction([
+      prisma.page.deleteMany({ where: { chapterId } }),
+      prisma.chapter.delete({ where: { id: chapterId } }),
+    ]);
+
+    return redirect(`/dashboard/${comicId}`);
+  }
+
+  if (intent === "updatePublishedDate") {
+    const dateStr = formData.get("publishedDate");
+    if (typeof dateStr !== "string" || !dateStr) {
+      return redirect(`/dashboard/${comicId}/${chapterId}`);
+    }
+    // Expect YYYY-MM-DD from date input
+    const parsed = new Date(dateStr + "T00:00:00Z");
+    if (isNaN(parsed.getTime())) {
+      return redirect(`/dashboard/${comicId}/${chapterId}`);
+    }
+    await prisma.chapter.update({ where: { id: chapterId }, data: { publishedDate: parsed } });
+    return redirect(`/dashboard/${comicId}/${chapterId}`);
   }
 
   return new Response("Bad Request", { status: 400 });
@@ -156,6 +210,9 @@ function SortablePageItem({ id, imageUrl, displayNumber }: { id: string; imageUr
     transform: CSS.Transform.toString(transform),
     transition: transition || undefined,
   } as React.CSSProperties;
+  
+  const thumbnailUrl = getThumbnailUrl(imageUrl);
+  
   return (
     <div
       ref={setNodeRef}
@@ -165,9 +222,9 @@ function SortablePageItem({ id, imageUrl, displayNumber }: { id: string; imageUr
       className={`relative select-none rounded-md overflow-hidden border shadow aspect-[2/3] w-24
         ${isDragging ? "border-indigo-500 ring-2 ring-indigo-300 dark:ring-indigo-700 scale-105" : "border-gray-300 dark:border-gray-600"}`}
     >
-      {imageUrl ? (
+      {thumbnailUrl ? (
         <img
-          src={imageUrl}
+          src={thumbnailUrl}
           alt={`Page ${displayNumber}`}
           className="h-full w-full object-cover"
           draggable={false}
@@ -184,10 +241,12 @@ function SortablePageItem({ id, imageUrl, displayNumber }: { id: string; imageUr
 
 // Drag overlay visual
 function DragOverlayItem({ imageUrl, displayNumber }: { imageUrl: string; displayNumber: number }) {
+  const thumbnailUrl = getThumbnailUrl(imageUrl);
+  
   return (
     <div className="relative aspect-[2/3] w-24 rounded-md overflow-hidden border border-indigo-400 bg-white dark:bg-gray-800 shadow-lg">
-      {imageUrl ? (
-        <img src={imageUrl} alt={`Page ${displayNumber}`} className="h-full w-full object-cover" />
+      {thumbnailUrl ? (
+        <img src={thumbnailUrl} alt={`Page ${displayNumber}`} className="h-full w-full object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-[10px] bg-gray-200 dark:bg-gray-700">No image</div>
       )}
@@ -199,13 +258,15 @@ function DragOverlayItem({ imageUrl, displayNumber }: { imageUrl: string; displa
 }
 
 export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
-  const data = loaderData as { comic: { id: string; title: string; chapters: { id: string; number: number; title: string }[] }; chapter: { id: string; number: number; title: string; pages: { id: string; number: number; imageUrl: string }[] } } | undefined;
+  const data = loaderData as { comic: { id: string; title: string; chapters: { id: string; number: number; title: string }[] }; chapter: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number; imageUrl: string }[] } } | undefined;
   
   if (!data) {
     throw new Response("Not Found", { status: 404 });
   }
 
   const { comic, chapter } = data;
+  const publishedDateValue = chapter.publishedDate ? new Date(chapter.publishedDate) : null;
+  const publishedDateISO = publishedDateValue ? publishedDateValue.toISOString().slice(0,10) : "";
   const location = useLocation();
   const navigate = useNavigate();
   const deletedParam = new URLSearchParams(location.search).get("deleted");
@@ -323,6 +384,22 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
           >
             {reorderMode ? "Done" : "Reorder pages"}
           </button>
+          <fetcher.Form
+            method="post"
+            className="inline-flex"
+            onSubmit={(e) => {
+              const ok = confirm("Delete this chapter and all its pages? This cannot be undone.");
+              if (!ok) e.preventDefault();
+            }}
+          >
+            <input type="hidden" name="intent" value="deleteChapter" />
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-red-700 text-white hover:bg-red-600"
+            >
+              Delete chapter
+            </button>
+          </fetcher.Form>
           <button
             type="button"
             onClick={() => setSelectMode(s => !s)}
@@ -403,12 +480,31 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
       </div>
 
       <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">
-          {chapter.title}
-        </h1>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-          {chapter.pages.length} page{chapter.pages.length !== 1 ? "s" : ""}
-        </p>
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{chapter.title}</h1>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              {chapter.pages.length} page{chapter.pages.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <form method="post" className="flex items-center gap-2 text-sm">
+            <input type="hidden" name="intent" value="updatePublishedDate" />
+            <label htmlFor="publishedDate" className="text-gray-600 dark:text-gray-300">Publish on</label>
+            <input
+              id="publishedDate"
+              name="publishedDate"
+              type="date"
+              defaultValue={publishedDateISO}
+              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow transition"
+            >
+              Save
+            </button>
+          </form>
+        </div>
       </div>
 
       {reorderMode && (
@@ -481,7 +577,7 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
                   className="relative aspect-[2/3] rounded border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-900 overflow-hidden group cursor-pointer"
                 >
                   <img
-                    src={page.imageUrl}
+                    src={getThumbnailUrl(page.imageUrl)}
                     alt={`Page ${page.number}`}
                     className="h-full w-full object-cover"
                   />

@@ -18,7 +18,41 @@ export async function loader(args: Route.LoaderArgs) {
     select: { id: true, title: true, thumbnail: true },
     orderBy: { createdAt: "desc" },
   });
-  return { comics };
+
+  // For comics without a cover, load first page of first chapter as fallback (or first standalone page)
+  const comicsWithFallback = await Promise.all(
+    comics.map(async (comic) => {
+      if (comic.thumbnail) return comic;
+      // First chapter
+      const firstChapter = await prisma.chapter.findFirst({
+        where: { comicId: comic.id },
+        orderBy: { number: "asc" },
+        select: { id: true },
+      });
+      if (firstChapter) {
+        const firstPage = await prisma.page.findFirst({
+          where: { comicId: comic.id, chapterId: firstChapter.id },
+          orderBy: { number: "asc" },
+          select: { imageUrl: true },
+        });
+        if (firstPage?.imageUrl) {
+          return { ...comic, thumbnail: firstPage.imageUrl };
+        }
+      }
+      // Fallback to first standalone page
+      const standalonePage = await prisma.page.findFirst({
+        where: { comicId: comic.id, chapterId: null },
+        orderBy: { number: "asc" },
+        select: { imageUrl: true },
+      });
+      if (standalonePage?.imageUrl) {
+        return { ...comic, thumbnail: standalonePage.imageUrl };
+      }
+      return comic;
+    })
+  );
+
+  return { comics: comicsWithFallback };
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {

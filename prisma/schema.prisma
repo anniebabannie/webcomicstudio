@@ -44,6 +44,7 @@ model Chapter {
   title       String
   number      Int      // Sequential order (1, 2, 3...)
   description String?
+  publishedDate DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   

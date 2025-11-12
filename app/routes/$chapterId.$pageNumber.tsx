@@ -44,6 +44,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           id: true,
           number: true,
           title: true,
+          publishedDate: true,
         },
       },
     },
@@ -63,6 +64,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       id: true,
       number: true,
       title: true,
+      publishedDate: true,
       pages: {
         where: { number: pageNum },
         select: {
@@ -76,6 +78,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   if (!chapter || chapter.pages.length === 0) {
     throw new Response("Page not found", { status: 404 });
+  }
+  // Block access if chapter is scheduled for future
+  if (chapter.publishedDate && new Date(chapter.publishedDate) > new Date()) {
+    throw new Response("Not Found", { status: 404 });
   }
 
   const page = chapter.pages[0];
@@ -99,23 +105,79 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     select: { number: true },
   });
 
-  return { comic, chapter, page, prevPage, nextPage };
+  // If first page (no prevPage), fetch last page of previous published chapter
+  let prevChapterLastPage: { chapterId: string; pageNumber: number } | null = null;
+  if (!prevPage && pageNum === 1) {
+    const previousChapter = await prisma.chapter.findFirst({
+      where: {
+        comicId: comic.id,
+        number: { lt: chapter.number },
+        OR: [
+          { publishedDate: null },
+          { publishedDate: { lte: new Date() } },
+        ],
+      },
+      orderBy: { number: "desc" },
+      select: { id: true },
+    });
+    if (previousChapter) {
+      const lastPage = await prisma.page.findFirst({
+        where: { chapterId: previousChapter.id },
+        orderBy: { number: "desc" },
+        select: { number: true },
+      });
+      if (lastPage) {
+        prevChapterLastPage = { chapterId: previousChapter.id, pageNumber: lastPage.number };
+      }
+    }
+  }
+
+  // If no next page inside this chapter, find first page of next published chapter
+  let nextChapterFirstPage: { chapterId: string; pageNumber: number } | null = null;
+  if (!nextPage) {
+    const nextChapter = await prisma.chapter.findFirst({
+      where: {
+        comicId: comic.id,
+        number: { gt: chapter.number },
+        OR: [
+          { publishedDate: null },
+          { publishedDate: { lte: new Date() } },
+        ],
+      },
+      orderBy: { number: "asc" },
+      select: { id: true },
+    });
+    if (nextChapter) {
+      const firstPage = await prisma.page.findFirst({
+        where: { chapterId: nextChapter.id },
+        orderBy: { number: "asc" },
+        select: { number: true },
+      });
+      if (firstPage) {
+        nextChapterFirstPage = { chapterId: nextChapter.id, pageNumber: firstPage.number };
+      }
+    }
+  }
+
+  return { comic, chapter, page, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage };
 }
 
 export default function ComicPage({ loaderData }: Route.ComponentProps) {
   const data = loaderData as {
-    comic: { id: string; title: string; chapters: { id: string; number: number; title: string }[] };
+    comic: { id: string; title: string; chapters: { id: string; number: number; title: string; publishedDate: Date | null }[] };
     chapter: { id: string; number: number; title: string };
     page: { id: string; number: number; imageUrl: string };
     prevPage: { number: number } | null;
     nextPage: { number: number } | null;
+    nextChapterFirstPage: { chapterId: string; pageNumber: number } | null;
+    prevChapterLastPage: { chapterId: string; pageNumber: number } | null;
   } | undefined;
   
   if (!data) {
     throw new Response("Not Found", { status: 404 });
   }
   
-  const { comic, chapter, page, prevPage, nextPage } = data;
+  const { comic, chapter, page, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage } = data;
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -137,11 +199,13 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
               }}
               className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {comic.chapters.map((ch) => (
-                <option key={ch.id} value={ch.id}>
-                  {ch.title}
-                </option>
-              ))}
+              {comic.chapters
+                .filter(ch => !ch.publishedDate || new Date(ch.publishedDate) <= new Date())
+                .map((ch) => (
+                  <option key={ch.id} value={ch.id}>
+                    {ch.title}
+                  </option>
+                ))}
             </select>
             <span className="text-gray-400">•</span>
             <span className="text-gray-400">Page {page.number}</span>
@@ -153,10 +217,13 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
       <main className="flex-1 flex items-center justify-center p-4">
         {/* Arrow key navigation hook call */}
         {(() => {
-          usePageArrowNavigation(
-            prevPage ? `/${chapter.id}/${prevPage.number}` : undefined,
-            nextPage ? `/${chapter.id}/${nextPage.number}` : undefined
-          );
+          const prevUrl = prevPage
+            ? `/${chapter.id}/${prevPage.number}`
+            : (prevChapterLastPage ? `/${prevChapterLastPage.chapterId}/${prevChapterLastPage.pageNumber}` : undefined);
+          const nextUrl = nextPage
+            ? `/${chapter.id}/${nextPage.number}`
+            : (nextChapterFirstPage ? `/${nextChapterFirstPage.chapterId}/${nextChapterFirstPage.pageNumber}` : undefined);
+          usePageArrowNavigation(prevUrl, nextUrl);
           return null;
         })()}
         <div className="relative flex items-center gap-4">
@@ -166,6 +233,16 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
               to={`/${chapter.id}/${prevPage.number}`}
               className="p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition shadow-lg"
               aria-label="Previous page"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </Link>
+          ) : prevChapterLastPage ? (
+            <Link
+              to={`/${prevChapterLastPage.chapterId}/${prevChapterLastPage.pageNumber}`}
+              className="p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition shadow-lg"
+              aria-label="Previous chapter"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -187,6 +264,16 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
               to={`/${chapter.id}/${nextPage.number}`}
               className="p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition shadow-lg"
               aria-label="Next page"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </Link>
+          ) : nextChapterFirstPage ? (
+            <Link
+              to={`/${nextChapterFirstPage.chapterId}/${nextChapterFirstPage.pageNumber}`}
+              className="p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition shadow-lg"
+              aria-label="Next chapter"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />

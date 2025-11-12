@@ -1,5 +1,11 @@
 import type { Route } from "./+types/dashboard.$comicId";
-import { redirect, Link, Form } from "react-router";
+import { redirect, Link, Form, useNavigation } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { prisma } from "../utils/db.server";
 import { getAuth } from "@clerk/react-router/server";
 
@@ -30,6 +36,7 @@ export async function loader(args: Route.LoaderArgs) {
           id: true,
           number: true,
           title: true,
+          publishedDate: true,
           _count: { select: { pages: true } },
         },
         orderBy: { number: "asc" },
@@ -38,15 +45,32 @@ export async function loader(args: Route.LoaderArgs) {
     },
   });
 
-  // Get most recent page image if no thumbnail
+  // Cover fallback logic: if no thumbnail, use first page of first chapter; else first standalone page
   let recentPageImage: string | null = null;
   if (comic && !comic.thumbnail) {
-    const recentPage = await prisma.page.findFirst({
+    // Find first chapter (by number asc) and its first page
+    const firstChapter = await prisma.chapter.findFirst({
       where: { comicId },
-      orderBy: { createdAt: "desc" },
-      select: { imageUrl: true },
+      orderBy: { number: "asc" },
+      select: { id: true },
     });
-    recentPageImage = recentPage?.imageUrl || null;
+    if (firstChapter) {
+      const firstChapterPage = await prisma.page.findFirst({
+        where: { comicId, chapterId: firstChapter.id },
+        orderBy: { number: "asc" },
+        select: { imageUrl: true },
+      });
+      recentPageImage = firstChapterPage?.imageUrl || null;
+    }
+    // If no chapter page found, fallback to first standalone page (chapterId null)
+    if (!recentPageImage) {
+      const firstStandalonePage = await prisma.page.findFirst({
+        where: { comicId, chapterId: null },
+        orderBy: { number: "asc" },
+        select: { imageUrl: true },
+      });
+      recentPageImage = firstStandalonePage?.imageUrl || null;
+    }
   }
 
   if (!comic) throw new Response("Not Found", { status: 404 });
@@ -97,6 +121,46 @@ export async function action(args: Route.ActionArgs) {
     await prisma.comic.update({ where: { id: comicId }, data: { thumbnail: url } });
     return redirect(`/dashboard/${comicId}`);
   }
+
+  if (intent === "removeCover") {
+    await prisma.comic.update({ where: { id: comicId }, data: { thumbnail: null } });
+    return redirect(`/dashboard/${comicId}`);
+  }
+
+  if (intent === "reorderChapters") {
+    // Gather submitted chapter IDs in order
+    const chapterIds: string[] = [];
+    for (const [key, value] of formData.entries()) {
+      if (key.startsWith("chapter_")) {
+        chapterIds.push(String(value));
+      }
+    }
+    // Validate ownership of chapters
+    const existing = await prisma.chapter.findMany({
+      where: { comicId },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map(c => c.id));
+    const filtered = chapterIds.filter(id => existingIds.has(id));
+    if (filtered.length !== existing.length) {
+      // If mismatch, abort silently or return error
+      return redirect(`/dashboard/${comicId}`);
+    }
+    // Two-phase renumber using unique temporary numbers per row to satisfy (comicId, number) uniqueness
+    // Phase 1: assign distinct high temp numbers (10000 + index)
+    await Promise.all(
+      filtered.map((id, idx) =>
+        prisma.chapter.update({ where: { id }, data: { number: 10000 + idx } })
+      )
+    );
+    // Phase 2: assign final target sequence 1..N
+    await Promise.all(
+      filtered.map((id, idx) =>
+        prisma.chapter.update({ where: { id }, data: { number: idx + 1 } })
+      )
+    );
+    return redirect(`/dashboard/${comicId}`);
+  }
   
   return new Response("Unknown intent", { status: 400 });
 }
@@ -111,11 +175,56 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
       thumbnail: string | null;
       createdAt: Date;
       updatedAt: Date;
-      chapters: { id: string; number: number; title: string; _count: { pages: number } }[];
+  chapters: { id: string; number: number; title: string; publishedDate: Date | null; _count: { pages: number } }[];
       _count: { pages: number };
     };
     recentPageImage: string | null;
   };
+
+  // Reorder chapters state
+  const [reorderMode, setReorderMode] = useState(false);
+  const [chaptersOrder, setChaptersOrder] = useState(comic.chapters.map(c => c.id));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Auto-exit reorder mode after successful save
+  const navigation = useNavigation();
+  const lastIntentRef = useRef<string | null>(null);
+  useEffect(() => {
+    const fd = navigation.formData as FormData | undefined;
+    if (fd) {
+      const intent = String(fd.get("intent") || "");
+      lastIntentRef.current = intent;
+    } else if (navigation.state === "idle" && lastIntentRef.current === "reorderChapters") {
+      setReorderMode(false);
+      lastIntentRef.current = null;
+    }
+  }, [navigation.state, navigation.formData]);
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = chaptersOrder.indexOf(String(active.id));
+      const newIndex = chaptersOrder.indexOf(String(over.id));
+      setChaptersOrder(arrayMove(chaptersOrder, oldIndex, newIndex));
+    }
+  }
+
+  function SortableChapter({ id }: { id: string }) {
+    const chapter = comic.chapters.find(c => c.id === id)!;
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+    const style: React.CSSProperties = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : undefined,
+      cursor: "grab",
+    };
+    return (
+      <li ref={setNodeRef} style={style} {...attributes} {...listeners} className="p-2 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm flex items-center justify-between">
+        <span className="font-medium">{chapter.title}</span>
+        <span className="text-xs text-gray-500">{chapter._count.pages} page{chapter._count.pages !== 1 ? 's' : ''}</span>
+      </li>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
@@ -144,7 +253,23 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
         <aside className="space-y-4 md:col-span-1">
           <div>
             <h2 className="text-sm font-semibold text-gray-500 uppercase">Subdomain</h2>
-            <p className="mt-1 break-all">{comic.slug}.webcomic.studio</p>
+            {(() => {
+              const isDev = import.meta.env.DEV;
+              const domain = isDev
+                ? `${comic.slug}.localhost:5173`
+                : `${comic.slug}.webcomic.studio`;
+              const href = `${isDev ? "http" : "https"}://${domain}`;
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 break-all inline-block text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  {domain}
+                </a>
+              );
+            })()}
           </div>
           <div>
             <h2 className="text-sm font-semibold text-gray-500 uppercase">Description</h2>
@@ -153,30 +278,74 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
             </p>
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-gray-500 uppercase">Chapters</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase">Chapters</h2>
+              {comic.chapters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setReorderMode(r => !r)}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  {reorderMode ? "Done" : "Reorder"}
+                </button>
+              )}
+            </div>
             {comic.chapters.length > 0 ? (
               <>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {comic.chapters.map(ch => (
-                    <li key={ch.id}>
-                      <Link 
-                        to={`/dashboard/${comic.id}/${ch.id}`}
-                        className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                {!reorderMode ? (
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {comic.chapters.map(ch => {
+                      const future = ch.publishedDate && new Date(ch.publishedDate) > new Date();
+                      const dateStr = future ? new Date(ch.publishedDate!).toISOString().slice(0,10) : null;
+                      return (
+                        <li key={ch.id} className="flex items-center gap-2">
+                          <Link 
+                            to={`/dashboard/${comic.id}/${ch.id}`}
+                            className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                          >
+                            {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
+                          </Link>
+                          {future && (
+                            <span className="text-xs text-gray-400">Scheduled for {dateStr}</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <SortableContext items={chaptersOrder} strategy={verticalListSortingStrategy}>
+                      <ul className="mt-2 space-y-2">
+                        {chaptersOrder.map(id => <SortableChapter key={id} id={id} />)}
+                      </ul>
+                    </SortableContext>
+                  </DndContext>
+                )}
+                <div className="mt-2 flex items-center gap-3">
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="deleteAllChapters" />
+                    <button
+                      type="submit"
+                      className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      Delete All Chapters
+                    </button>
+                  </Form>
+                  {reorderMode && (
+                    <Form method="post" className="inline-flex items-center gap-2">
+                      <input type="hidden" name="intent" value="reorderChapters" />
+                      {chaptersOrder.map((id, idx) => (
+                        <input key={id} type="hidden" name={`chapter_${idx}`} value={id} />
+                      ))}
+                      <button
+                        type="submit"
+                        className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                       >
-                        {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-                <Form method="post" className="mt-2">
-                  <input type="hidden" name="intent" value="deleteAllChapters" />
-                  <button
-                    type="submit"
-                    className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                  >
-                    Delete All Chapters
-                  </button>
-                </Form>
+                        Save Order
+                      </button>
+                    </Form>
+                  )}
+                </div>
               </>
             ) : (
               <p className="mt-1 text-gray-500 text-sm">No chapters</p>
@@ -232,6 +401,17 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
               >
                 {comic.thumbnail ? "Update Cover" : "Add Cover"}
               </button>
+              {comic.thumbnail && (
+                <Form method="post" className="inline-block ml-2">
+                  <input type="hidden" name="intent" value="removeCover" />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 border border-transparent hover:border-red-200 dark:hover:border-red-800 transition"
+                  >
+                    Remove Cover
+                  </button>
+                </Form>
+              )}
             </Form>
           </div>
         </aside>

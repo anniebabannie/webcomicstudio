@@ -178,8 +178,9 @@ export async function action(args: Route.ActionArgs) {
     const files = formData.getAll("pages") as File[];
     if (files.length === 0) return new Response("No files uploaded", { status: 400 });
 
-    // Sort files alphabetically by filename
-    const sortedFiles = files.slice().sort((a, b) => a.name.localeCompare(b.name));
+  // Sort files by filename using natural (numeric-aware) order so 2 < 10
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const sortedFiles = files.slice().sort((a, b) => collator.compare(a.name, b.name));
 
     // Check for new chapter title or existing chapter selection
     const newChapterTitle = String(formData.get("newChapterTitle") || "").trim();
@@ -215,18 +216,25 @@ export async function action(args: Route.ActionArgs) {
     // Upload files to S3 and create page records
   // Dynamic import server-only modules to avoid client bundle inclusion
   const { uploadBufferToS3 } = await import("../utils/s3.server");
-  const { convertToWebP } = await import("../utils/image.server");
+  const { convertToWebP, generateThumbnail } = await import("../utils/image.server");
 
   for (let i = 0; i < sortedFiles.length; i++) {
       const file = sortedFiles[i];
       const pageNumber = nextPageNumber + i;
       // Convert to WebP in-memory
       const original = Buffer.from(await file.arrayBuffer());
-      const webp = await convertToWebP(original, 82);
+      const webp = await convertToWebP(original, 75, 1500); // quality 75, max 1500px width
+      const thumbnail = await generateThumbnail(original, 400, 75);
+      
       const ext = 'webp';
       const uuid = uuidv4();
       const s3Key = `${userId}/${comicId}/${pageNumber}-${uuid}.${ext}`;
+      const thumbnailKey = `${userId}/${comicId}/${pageNumber}-${uuid}-thumbnail.${ext}`;
+      
+      // Upload both full-size and thumbnail to S3
       const imageUrl = await uploadBufferToS3(webp, s3Key, 'image/webp');
+      await uploadBufferToS3(thumbnail, thumbnailKey, 'image/webp');
+      
       await prisma.page.create({
         data: {
           comicId,
