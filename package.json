@@ -40,5 +40,8 @@
   },
   "overrides": {
     "p-map": "^5.5.0"
+  },
+  "engines": {
+    "node": "24.3.0"
   }
 }
