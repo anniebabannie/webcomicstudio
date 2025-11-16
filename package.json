@@ -6,7 +6,9 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "db:generate": "dotenv -e .env -- prisma generate",
+    "db:migrate": "dotenv -e .env -- prisma migrate dev"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.928.0",
@@ -31,6 +33,7 @@
     "@types/node": "^22",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
+    "dotenv-cli": "^11.0.0",
     "prisma": "^6.19.0",
     "tailwindcss": "^4.1.17",
     "tsx": "^4.20.6",

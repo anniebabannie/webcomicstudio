@@ -21,29 +21,41 @@ export function meta({ data }: Route.MetaArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const host = request.headers.get("host");
   console.log("Host header:", host);
-  const subdomain = extractSubdomain(host);
+  
+  const url = new URL(request.url);
+  const isPreview = url.searchParams.get("preview") === "true";
+  
+  // Check if this is a custom domain (not localhost or webcomic.studio)
+  const isCustomDomain = host && 
+    !host.includes('localhost') && 
+    !host.includes('lvh.me') &&
+    !host.includes('webcomic.studio');
 
-  if (subdomain) {
-    // Look up comic by slug
-    const comic = await prisma.comic.findUnique({
-      where: { slug: subdomain },
+  let comic = null;
+
+  if (isCustomDomain) {
+    // Custom domain lookup - remove port if present
+    const hostname = host.split(':')[0];
+    comic = await prisma.comic.findUnique({
+      where: { domain: hostname },
       select: {
         id: true,
         title: true,
         description: true,
         thumbnail: true,
+        logo: true,
         chapters: {
           select: {
             id: true,
             number: true,
             title: true,
+            publishedDate: true,
             pages: {
               select: {
                 id: true,
                 number: true,
               },
               orderBy: { number: 'asc' },
-              take: 1,
             },
           },
           orderBy: { number: 'asc' },
@@ -60,12 +72,70 @@ export async function loader({ request }: Route.LoaderArgs) {
         },
       },
     });
-
-    if (!comic) {
-      throw new Response("Comic not found", { status: 404 });
+  } else {
+    // Subdomain lookup (existing logic)
+    const subdomain = extractSubdomain(host);
+    if (subdomain) {
+      comic = await prisma.comic.findUnique({
+        where: { slug: subdomain },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          thumbnail: true,
+          logo: true,
+          chapters: {
+            select: {
+              id: true,
+              number: true,
+              title: true,
+              publishedDate: true,
+              pages: {
+                select: {
+                  id: true,
+                  number: true,
+                },
+                orderBy: { number: 'asc' },
+              },
+            },
+            orderBy: { number: 'asc' },
+          },
+          pages: {
+            select: {
+              id: true,
+              number: true,
+              chapterId: true,
+            },
+            where: { chapterId: null },
+            orderBy: { number: 'asc' },
+            take: 1,
+          },
+        },
+      });
     }
+  }
 
-    console.log("Loaded comic for subdomain:", comic);
+  if (comic) {
+    // Apply preview overrides if present
+    if (isPreview) {
+      const description = url.searchParams.get("description");
+      const chapterOrder = url.searchParams.get("chapterOrder");
+      
+      if (description !== null) {
+        comic.description = description;
+      }
+      
+      if (chapterOrder) {
+        const orderIds = chapterOrder.split(',');
+        const orderedChapters = orderIds
+          .map(id => comic.chapters.find(ch => ch.id === id))
+          .filter(Boolean);
+        if (orderedChapters.length === comic.chapters.length) {
+          comic.chapters = orderedChapters as typeof comic.chapters;
+        }
+      }
+    }
+    
     return { type: 'comic' as const, comic };
   }
 
@@ -78,25 +148,84 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   if (loaderData.type === 'comic') {
     const { comic } = loaderData;
     
+    // Get preview params from URL
+    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const previewParams = searchParams.toString();
+    
+    // Filter published chapters
+    const publishedChapters = comic.chapters.filter(
+      (ch) => !ch.publishedDate || new Date(ch.publishedDate) <= new Date()
+    );
+    
     // Determine the first page URL
     let firstPageUrl: string | null = null;
-    if (comic.chapters.length > 0 && comic.chapters[0].pages.length > 0) {
+    if (publishedChapters.length > 0 && publishedChapters[0].pages.length > 0) {
       // First page of first chapter
-      const firstChapter = comic.chapters[0];
+      const firstChapter = publishedChapters[0];
       const firstPage = firstChapter.pages[0];
-      firstPageUrl = `/${firstChapter.id}/${firstPage.number}`;
+      firstPageUrl = `/${firstChapter.id}/${firstPage.number}${previewParams ? `?${previewParams}` : ''}`;
     } else if (comic.pages.length > 0) {
       // First standalone page (no chapter)
       const firstPage = comic.pages[0];
-      firstPageUrl = `/page/${firstPage.number}`;
+      firstPageUrl = `/page/${firstPage.number}${previewParams ? `?${previewParams}` : ''}`;
     }
     
     return (
       <div className="min-h-screen bg-gray-900 flex flex-col">
         {/* Header */}
         <header className="bg-gray-950 border-b border-gray-800 px-4 py-3">
-          <div className="mx-auto max-w-7xl">
-            <h1 className="text-lg font-semibold text-white">{comic.title}</h1>
+          <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {comic.logo ? (
+                <img src={comic.logo} alt={comic.title} className="max-h-[28px]" />
+              ) : (
+                <h1 className="text-lg font-semibold text-white">{comic.title}</h1>
+              )}
+              {comic.description && (
+                <p className="text-sm text-gray-400 hidden sm:block">
+                  {comic.description.slice(0, 100)}{comic.description.length > 100 ? '...' : ''}
+                </p>
+              )}
+            </div>
+            {publishedChapters.length > 0 && (
+              <div className="flex items-center gap-3 text-sm">
+                <select
+                  defaultValue={publishedChapters[0].id}
+                  onChange={(e) => {
+                    const selectedChapter = publishedChapters.find(ch => ch.id === e.target.value);
+                    if (selectedChapter && selectedChapter.pages.length > 0) {
+                      window.location.href = `/${selectedChapter.id}/1${previewParams ? `?${previewParams}` : ''}`;
+                    }
+                  }}
+                  className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {publishedChapters.map((ch) => (
+                    <option key={ch.id} value={ch.id}>
+                      {ch.title}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-gray-400">•</span>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const chapterId = publishedChapters[0]?.id;
+                    const pageNum = parseInt(e.target.value, 10);
+                    if (chapterId && !isNaN(pageNum)) {
+                      window.location.href = `/${chapterId}/${pageNum}${previewParams ? `?${previewParams}` : ''}`;
+                    }
+                  }}
+                  className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">--</option>
+                  {publishedChapters[0]?.pages.map((p) => (
+                    <option key={p.number} value={p.number}>
+                      Page {p.number}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </header>
 
@@ -145,19 +274,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           )}
         </main>
 
-        {/* Footer navigation */}
-        <footer className="bg-gray-950 border-t border-gray-800 px-4 py-3">
-          <div className="mx-auto max-w-7xl flex items-center justify-center">
-            {firstPageUrl && (
-              <Link
-                to={firstPageUrl}
-                className="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-md transition"
-              >
-                Start Reading →
-              </Link>
-            )}
-          </div>
-        </footer>
+        {/* Powered by footer */}
+        <div className="fixed bottom-4 left-4 text-xs text-gray-500 dark:text-gray-400">
+          Powered by{" "}
+          <a
+            href={import.meta.env.DEV ? "http://localhost:5173" : "https://webcomic.studio"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-gray-700 dark:hover:text-gray-300 underline transition"
+          >
+            WebComic Studio
+          </a>
+        </div>
       </div>
     );
   }
@@ -166,11 +294,22 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   return(
     <>
       <NavBar />
-      <section className="relative overflow-hidden">
-      <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+      <section className="relative overflow-hidden min-h-screen flex items-center">
+        {/* Background image with color overlay blend */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none opacity-15"
+          style={{
+            backgroundImage: "linear-gradient(to bottom right, rgba(168, 85, 247, 1), rgba(236, 72, 153, 1)), url('/ai-bg-1.png')",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundBlendMode: "screen"
+          }}
+        />
+        <div className="relative z-10 mx-auto max-w-6xl px-4 py-16 sm:py-24 w-full">
         <div className="grid items-center gap-10 lg:grid-cols-2">
           <div>
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight">
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-shadow-lg text-shadow-white">
               Publish your webcomic in minutes
             </h1>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-300">
@@ -195,11 +334,48 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
           <div className="relative">
-            <div className="aspect-[4/3] rounded-xl border border-gray-200 dark:border-gray-800 bg-gradient-to-br from-indigo-50 to-pink-50 dark:from-indigo-950 dark:to-pink-950 p-4">
-              <div className="h-full w-full rounded-lg bg-white/70 dark:bg-gray-950/70 border border-gray-200/60 dark:border-gray-800/60 grid place-items-center text-center">
-                <div>
-                  <p className="text-sm uppercase tracking-widest text-gray-500">Preview</p>
-                  <p className="mt-1 font-medium text-gray-700 dark:text-gray-200">Your webcomic homepage & chapter list</p>
+            <div className="aspect-[4/3] rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 shadow-sm flex flex-col">
+              {/* Mac style traffic light title bar */}
+              <div className="flex items-center gap-2 px-3 h-8 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+                <div className="flex items-center gap-1">
+                  <span className="h-3 w-3 rounded-full bg-[#ff5f56]"></span>
+                  <span className="h-3 w-3 rounded-full bg-[#ffbd2e]"></span>
+                  <span className="h-3 w-3 rounded-full bg-[#27c93f]"></span>
+                </div>
+                <div className="mx-auto text-xs text-gray-500 dark:text-gray-400 select-none tracking-tight">
+                  your-comic.webcomic.studio
+                </div>
+              </div>
+              {/* Window content */}
+              <div className="flex-1 flex flex-col">
+                {/* Fake site navigation */}
+                <div className="h-9 px-4 flex items-center text-sm bg-gray-50 dark:bg-gray-900/70 border-b border-gray-200 dark:border-gray-800">
+                  <span className="font-semibold text-gray-700 dark:text-gray-200 tracking-tight">Your Comic</span>
+                </div>
+                {/* Centered comic page placeholder */}
+                <div className="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-gray-100 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
+                  <div className="aspect-[2/3] w-40 sm:w-48 md:w-56 lg:w-64 max-h-full rounded-md border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 shadow-inner p-1 flex flex-col gap-1">
+                    {/* New top row: two panels */}
+                    <div className="flex gap-1">
+                      <div className="w-1/3 h-20 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                      <div className="w-2/3 h-20 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                    </div>
+                    {/* Middle row: 2 panels */}
+                    <div className="flex gap-1">
+                      <div className="w-2/3 h-16 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                      <div className="w-1/3 h-16 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                    </div>
+                    {/* Existing wide panel */}
+                    <div className="flex-1 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                    {/* Bottom row: 3 panels */}
+                    <div className="flex gap-1">
+                      <div className="flex-1 h-28 flex flex-col gap-1">
+                        <div className="flex-1 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                        <div className="flex-1 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                      </div>
+                      <div className="flex-1 h-28 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

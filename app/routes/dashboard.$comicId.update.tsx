@@ -1,6 +1,7 @@
 import type { Route } from "./+types/dashboard.$comicId.update";
 import { useEffect, useRef, useState } from "react";
 import { getAuth } from "@clerk/react-router/server";
+import { useAuth, PricingTable } from "@clerk/react-router";
 import { redirect, Form, Link } from "react-router";
 import { prisma } from "../utils/db.server";
 import { uuidv4 } from "../utils/uuid"; // pure client-safe
@@ -18,14 +19,19 @@ export async function loader(args: Route.LoaderArgs) {
     select: { id: true, number: true, title: true },
     orderBy: { number: "asc" },
   });
-  return { comicId, chapters };
+  const pageCount = await prisma.page.count({ where: { comicId } });
+  return { comicId, chapters, pageCount };
 }
 
 export default function UpdateComic({ loaderData }: Route.ComponentProps) {
-  const { comicId, chapters } = loaderData as {
+  const { comicId, chapters, pageCount } = loaderData as {
     comicId: string;
     chapters: { id: string; number: number; title: string }[];
+    pageCount: number;
   };
+  const { has, isLoaded } = useAuth();
+  const PAGE_LIMIT = 42;
+  const PREMIUM_PLAN = "premium"; // TODO: set to your exact Clerk plan slug
   const hasChapters = chapters.length > 0;
   const [showNewChapter, setShowNewChapter] = useState(false);
   const newChapterRef = useRef<HTMLInputElement | null>(null);
@@ -36,6 +42,33 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
       return () => clearTimeout(t);
     }
   }, [showNewChapter]);
+  // Gate: if over limit and user lacks premium, show upgrade notice instead of form
+  if (isLoaded && !has({ plan: PREMIUM_PLAN }) && pageCount >= PAGE_LIMIT) {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <div className="mb-2">
+          <Link to={`/dashboard/${comicId}`} className="inline-flex items-center text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white">
+            <span className="mr-1">←</span> Back to comic
+          </Link>
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight mb-4">Add Pages</h1>
+        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-4">
+          <h2 className="font-semibold text-amber-900 dark:text-amber-200 mb-1">Premium required</h2>
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            You’ve reached the free limit of {PAGE_LIMIT} pages. Upgrade to the Premium plan to add more pages.
+          </p>
+          <div className="mt-3 flex gap-3">
+            <Link to="/pricing" className="inline-flex items-center rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm px-4 py-2">View plans</Link>
+            <Link to={`/dashboard/${comicId}`} className="inline-flex items-center rounded-md bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700 text-sm px-4 py-2">Back</Link>
+          </div>
+          <div className="mt-6">
+            <PricingTable />
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
       <div className="mb-2">

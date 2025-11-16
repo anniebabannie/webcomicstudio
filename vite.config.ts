@@ -5,4 +5,8 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
   plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+  server: {
+    host: true, // Listen on all local IPs (allows custom domains via /etc/hosts)
+    allowedHosts: true, // Allow any host in dev (needed for many custom domains)
+  },
 });

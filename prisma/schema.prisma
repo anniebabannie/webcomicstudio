@@ -25,7 +25,10 @@ model Comic {
   title       String
   description String?
   slug        String   @unique // For subdomain/URL
+  domain      String?  @unique // Custom domain (e.g., "mycomic.com")
   thumbnail   String?  // Cover image URL
+  logo        String?  // Logo image URL
+  doubleSpread Boolean @default(false) // Enable double-page spread view
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   

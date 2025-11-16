@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 
 export function NavBar() {
   return (
-    <nav className="w-full border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-950/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+    <nav className="w-full border-b border-pink-100 dark:border-gray-800 bg-white/80 dark:bg-gray-950/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
         <Link to="/" className="font-bold text-lg tracking-tight flex items-center gap-2">
           <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-transparent bg-clip-text">WebComic Studio</span>

@@ -141,8 +141,32 @@ export async function action(args: Route.ActionArgs) {
     const comic = await prisma.comic.findFirst({ where: { id: comicId, userId }, select: { id: true } });
     if (!comic) return redirect("/dashboard");
 
-    // Only delete pages that belong to this chapter
+    // Collect URLs to remove from S3 first
+    const pagesToDelete = await prisma.page.findMany({
+      where: { id: { in: selected }, chapterId },
+      select: { imageUrl: true },
+    });
+
+    // Remove from DB
     const result = await prisma.page.deleteMany({ where: { id: { in: selected }, chapterId } });
+
+    // Best-effort S3 cleanup of originals + thumbnails
+    try {
+      const { deleteS3Keys } = await import("../utils/s3.server");
+      const urlsToKeys = (url: string): string[] => {
+        try {
+          const u = new URL(url);
+          const key = u.pathname.startsWith('/') ? u.pathname.slice(1) : u.pathname;
+          const dot = key.lastIndexOf('.');
+          const thumbKey = dot === -1 ? `${key}-thumbnail` : `${key.slice(0, dot)}-thumbnail${key.slice(dot)}`;
+          return [key, thumbKey];
+        } catch { return []; }
+      };
+      const keys = pagesToDelete.flatMap(p => urlsToKeys(p.imageUrl));
+      await deleteS3Keys(keys);
+    } catch (err) {
+      console.error("Failed S3 cleanup for selected pages", err);
+    }
 
     // Resequence remaining pages to keep numbers contiguous
     const remaining = await prisma.page.findMany({
@@ -176,6 +200,35 @@ export async function action(args: Route.ActionArgs) {
     // Ensure chapter exists and belongs to comic
     const chapter = await prisma.chapter.findFirst({ where: { id: chapterId, comicId }, select: { id: true } });
     if (!chapter) return redirect(`/dashboard/${comicId}`);
+
+    // Gather page image URLs before deleting DB rows
+    const pages = await prisma.page.findMany({
+      where: { chapterId },
+      select: { imageUrl: true },
+    });
+
+    // Compute S3 keys for full-size and thumbnails
+    const urlsToKeys = (url: string): string[] => {
+      try {
+        const u = new URL(url);
+        const key = u.pathname.startsWith('/') ? u.pathname.slice(1) : u.pathname;
+        // insert -thumbnail before extension for thumb key
+        const dot = key.lastIndexOf('.');
+        const thumbKey = dot === -1 ? `${key}-thumbnail` : `${key.slice(0, dot)}-thumbnail${key.slice(dot)}`;
+        return [key, thumbKey];
+      } catch {
+        return [];
+      }
+    };
+    const keys: string[] = pages.flatMap(p => urlsToKeys(p.imageUrl));
+
+    // Best-effort S3 cleanup (do not block DB deletion on failures)
+    try {
+      const { deleteS3Keys } = await import("../utils/s3.server");
+      await deleteS3Keys(keys);
+    } catch (err) {
+      console.error("Failed to delete S3 objects for chapter", chapterId, err);
+    }
 
     // Delete pages first (in case cascade not set) then chapter
     await prisma.$transaction([
