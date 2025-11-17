@@ -2,7 +2,6 @@
  * Extract subdomain from host header
  * Examples:
  *   mycomic.localhost:3000 → "mycomic"
- *   mycomic.lvh.me:3000 → "mycomic"
  *   localhost:3000 → null
  *   webcomicstudio.com → null
  */
@@ -31,16 +30,24 @@ export function extractSubdomain(host: string | null): string | null {
       return subdomain;
     }
     
-    // Production two-part domains (e.g., "lvh.me", "example.com") have no subdomain
+    // Production two-part domains (e.g., "example.com") have no subdomain
     return null;
   }
 
-  // If three or more parts, first part is subdomain
-  // e.g., "mycomic.lvh.me" → ["mycomic", "lvh", "me"]
-  const subdomain = parts[0];
+  // If three or more parts, check if it's a base domain
+  // e.g., "mycomic.wcsstaging.com" → ["mycomic", "wcsstaging", "com"]
+  // e.g., "mycomic.webcomic.studio" → ["mycomic", "webcomic", "studio"]
+  const baseDomains = ['wcsstaging.com', 'webcomic.studio'];
+  const potentialBase = parts.slice(1).join('.');
+  
+  // If the remainder matches a base domain, first part is subdomain
+  if (baseDomains.includes(potentialBase)) {
+    const subdomain = parts[0];
+    // Exclude "www" as a valid subdomain
+    if (subdomain === 'www') return null;
+    return subdomain;
+  }
 
-  // Exclude "www" as a valid subdomain
-  if (subdomain === 'www') return null;
-
-  return subdomain;
+  // Otherwise, no subdomain (e.g., custom domain)
+  return null;
 }

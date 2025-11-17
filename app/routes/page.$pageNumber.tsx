@@ -41,8 +41,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   // Support custom domains in dev/prod
   const isCustomDomain = host &&
     !host.includes('localhost') &&
-    !host.includes('lvh.me') &&
-    !host.includes('webcomic.studio');
+    !host.includes('webcomic.studio') &&
+    !host.includes('wcsstaging.com');
 
   const { pageNumber } = params;
   if (!pageNumber) {

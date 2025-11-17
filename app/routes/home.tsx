@@ -50,8 +50,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   // Check if this is a custom domain (not localhost or webcomic.studio)
   const isCustomDomain = host && 
     !host.includes('localhost') && 
-    !host.includes('lvh.me') &&
-    !host.includes('webcomic.studio');
+    !host.includes('webcomic.studio') &&
+    !host.includes('wcsstaging.com');
 
   let comic = null;
 
