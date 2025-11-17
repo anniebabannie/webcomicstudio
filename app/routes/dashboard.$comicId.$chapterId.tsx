@@ -430,13 +430,21 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
           <span className="mr-1">←</span> Back to {comic.title}
         </Link>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setReorderMode(r => !r)}
-            className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white transition"
+          <Link
+            to={`/dashboard/${comic.id}/update?chapterId=${chapter.id}`}
+            className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition"
           >
-            {reorderMode ? "Done" : "Reorder pages"}
-          </button>
+            Add Pages
+          </Link>
+          {chapter.pages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setReorderMode(r => !r)}
+              className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white transition"
+            >
+              {reorderMode ? "Done" : "Reorder pages"}
+            </button>
+          )}
           <fetcher.Form
             method="post"
             className="inline-flex"
@@ -453,20 +461,22 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
               Delete chapter
             </button>
           </fetcher.Form>
-          <button
-            type="button"
-            onClick={() => setSelectMode(s => !s)}
-            disabled={reorderMode}
-            className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition ${
-              reorderMode
-                ? "bg-gray-100 dark:bg-gray-900 text-gray-400 cursor-not-allowed"
-                : selectMode
-                ? "bg-indigo-600 text-white hover:bg-indigo-500"
-                : "bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
-            }`}
-          >
-            Select
-          </button>
+          {chapter.pages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectMode(s => !s)}
+              disabled={reorderMode}
+              className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                reorderMode
+                  ? "bg-gray-100 dark:bg-gray-900 text-gray-400 cursor-not-allowed"
+                  : selectMode
+                  ? "bg-indigo-600 text-white hover:bg-indigo-500"
+                  : "bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+              }`}
+            >
+              Select
+            </button>
+          )}
           {selectMode && (
             <div className="flex items-center gap-2">
               {/* Delete Selected (UI only for now) */}
@@ -496,37 +506,39 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
                 </button>
               </fetcher.Form>
               {/* Move To Chapter (UI only) */}
-              <form
-                onSubmit={e => {
-                  if (selectedPages.size === 0) { e.preventDefault(); return; }
-                  const formData = new FormData(e.currentTarget);
-                  const target = String(formData.get("targetChapterId") || "");
-                  alert(`Would move ${selectedPages.size} page(s) to chapter ${target || '(none)'} (not implemented).`);
-                  e.preventDefault();
-                }}
-                className="flex items-center gap-1"
-              >
-                <input type="hidden" name="selected" value={JSON.stringify([...selectedPages])} />
-                <label className="sr-only" htmlFor="targetChapterId">Move to chapter</label>
-                <select
-                  id="targetChapterId"
-                  name="targetChapterId"
-                  className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs"
-                  defaultValue=""
+              {chapter.pages.length > 0 && (
+                <form
+                  onSubmit={e => {
+                    if (selectedPages.size === 0) { e.preventDefault(); return; }
+                    const formData = new FormData(e.currentTarget);
+                    const target = String(formData.get("targetChapterId") || "");
+                    alert(`Would move ${selectedPages.size} page(s) to chapter ${target || '(none)'} (not implemented).`);
+                    e.preventDefault();
+                  }}
+                  className="flex items-center gap-1"
                 >
-                  <option value="" disabled>Move to…</option>
-                  {comic.chapters.map(ch => (
-                    <option key={ch.id} value={ch.id}>Chapter {ch.number}: {ch.title}</option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  disabled={selectedPages.size === 0}
-                  className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Move
-                </button>
-              </form>
+                  <input type="hidden" name="selected" value={JSON.stringify([...selectedPages])} />
+                  <label className="sr-only" htmlFor="targetChapterId">Move to chapter</label>
+                  <select
+                    id="targetChapterId"
+                    name="targetChapterId"
+                    className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Move to…</option>
+                    {comic.chapters.map(ch => (
+                      <option key={ch.id} value={ch.id}>Chapter {ch.number}: {ch.title}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={selectedPages.size === 0}
+                    className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Move
+                  </button>
+                </form>
+              )}
             </div>
           )}
         </div>

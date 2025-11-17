@@ -126,8 +126,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (!chapter) {
     throw new Response("Page not found", { status: 404 });
   }
-  // Block access if chapter is scheduled for future
-  if (chapter.publishedDate && new Date(chapter.publishedDate) > new Date()) {
+  // Block access if chapter has no publishedDate or is scheduled for future
+  if (!chapter.publishedDate || new Date(chapter.publishedDate) > new Date()) {
     throw new Response("Not Found", { status: 404 });
   }
 
@@ -311,7 +311,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
               className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {comic.chapters
-                .filter(ch => !ch.publishedDate || new Date(ch.publishedDate) <= new Date())
+                .filter(ch => ch.publishedDate && new Date(ch.publishedDate) <= new Date())
                 .map((ch) => (
                   <option key={ch.id} value={ch.id}>
                     {ch.title}

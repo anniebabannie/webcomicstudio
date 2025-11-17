@@ -1,5 +1,21 @@
 import type { Route } from "./+types/dashboard.$comicId";
 import { redirect, Link, Form, useNavigation, useActionData } from "react-router";
+import {
+  DndContext,
+  closestCenter,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useState, useEffect, useRef } from "react";
 import { prisma } from "../utils/db.server";
 import { getAuth } from "@clerk/react-router/server";
@@ -192,6 +208,29 @@ export async function action(args: Route.ActionArgs) {
     await prisma.comic.update({ where: { id: comicId }, data: updates });
     return redirect(`/dashboard/${comicId}`);
   }
+
+  if (intent === "reorderChapters") {
+    const orderStr = String(formData.get("order") || "").trim();
+    const ids = orderStr ? orderStr.split(",").filter(Boolean) : [];
+    // Validate: ensure all ids belong to this comic
+    const existing = await prisma.chapter.findMany({ where: { comicId }, select: { id: true } });
+    const existingIds = new Set(existing.map(c => c.id));
+    const filtered = ids.filter(id => existingIds.has(id));
+    if (filtered.length === existing.length && filtered.length > 0) {
+      // Two-phase renumber to avoid unique collisions
+      await Promise.all(
+        filtered.map((id, idx) =>
+          prisma.chapter.update({ where: { id }, data: { number: 10000 + idx } })
+        )
+      );
+      await Promise.all(
+        filtered.map((id, idx) =>
+          prisma.chapter.update({ where: { id }, data: { number: idx + 1 } })
+        )
+      );
+    }
+    return redirect(`/dashboard/${comicId}`);
+  }
   
   if (intent === "deleteAllChapters") {
     // Prisma cascade will delete associated pages automatically
@@ -335,6 +374,31 @@ export async function action(args: Route.ActionArgs) {
     return redirect(`/dashboard/${comicId}`);
   }
   
+  if (intent === "createChapter") {
+    const name = formData.get("name");
+    if (!name || typeof name !== "string") {
+      return new Response("Chapter name required", { status: 400 });
+    }
+    
+    // Get the highest chapter number to auto-increment
+    const lastChapter = await prisma.chapter.findFirst({
+      where: { comicId },
+      orderBy: { number: 'desc' }
+    });
+    
+    const nextNumber = lastChapter ? lastChapter.number + 1 : 1;
+    
+    await prisma.chapter.create({
+      data: {
+        comicId,
+        title: name.trim(),
+        number: nextNumber
+      }
+    });
+    
+    return { success: true, action: 'createChapter' };
+  }
+  
   return new Response("Unknown intent", { status: 400 });
 }
 
@@ -360,14 +424,34 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
-  const [chapterOrder, setChapterOrder] = useState<string[]>(comic.chapters.map(ch => ch.id));
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [description, setDescription] = useState(comic.description || '');
   const [doubleSpread, setDoubleSpread] = useState(comic.doubleSpread || false);
+  const [showNewChapter, setShowNewChapter] = useState(false);
+  const [reorderChapters, setReorderChapters] = useState(false);
+  const [chapterIds, setChapterIds] = useState<string[]>(() => comic.chapters.map(c => c.id));
+  useEffect(() => {
+    setChapterIds(comic.chapters.map(c => c.id));
+  }, [comic.chapters]);
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setChapterIds((ids) => {
+      const oldIndex = ids.indexOf(String(active.id));
+      const newIndex = ids.indexOf(String(over.id));
+      return arrayMove(ids, oldIndex, newIndex);
+    });
+  }
   const navigation = useNavigation();
-  const actionData = useActionData<{ error?: string; message?: string }>();
+  const actionData = useActionData<{ error?: string; message?: string; success?: boolean; action?: string }>();
   const isSubmitting = navigation.state === "submitting" && navigation.formData?.get("intent") === "updateComic";
   const prevStateRef = useRef(navigation.state);
+  const lastIntentRef = useRef<string | null>(null);
 
   // Exit edit mode after successful save
   useEffect(() => {
@@ -382,13 +466,30 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
     
     prevStateRef.current = navigation.state;
   }, [navigation.state, isEditing, actionData]);
+  
+  // Hide new chapter form after successful creation
+  useEffect(() => {
+    if (actionData?.success && actionData?.action === 'createChapter') {
+      setShowNewChapter(false);
+    }
+  }, [actionData]);
+
+  // Exit reorder mode after successful save (intent=reorderChapters)
+  useEffect(() => {
+    if (navigation.state === 'submitting') {
+      lastIntentRef.current = String(navigation.formData?.get('intent') || '');
+    }
+    if (navigation.state === 'idle' && lastIntentRef.current === 'reorderChapters') {
+      setReorderChapters(false);
+      lastIntentRef.current = null;
+    }
+  }, [navigation.state]);
 
   // Clear previews when exiting edit mode
   useEffect(() => {
     if (!isEditing) {
       setLogoPreview(null);
       setThumbnailPreview(null);
-      setChapterOrder(comic.chapters.map(ch => ch.id));
       setDescription(comic.description || '');
       setDoubleSpread(comic.doubleSpread || false);
     }
@@ -420,31 +521,6 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
     }
   };
 
-  const handleDragStart = (index: number) => {
-    setDraggedIndex(index);
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === index) return;
-    
-    const newOrder = [...chapterOrder];
-    const draggedId = newOrder[draggedIndex];
-    newOrder.splice(draggedIndex, 1);
-    newOrder.splice(index, 0, draggedId);
-    
-    setChapterOrder(newOrder);
-    setDraggedIndex(index);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null);
-  };
-
-  const orderedChapters = chapterOrder
-    .map(id => comic.chapters.find(ch => ch.id === id))
-    .filter(Boolean) as typeof comic.chapters;
-
   const getPreviewUrl = () => {
     const isDev = import.meta.env.DEV;
     
@@ -456,7 +532,6 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
       preview: 'true',
       description: description,
       doubleSpread: String(doubleSpread),
-      chapterOrder: chapterOrder.join(','),
     });
     
     return `${baseUrl}?${params.toString()}`;
@@ -464,14 +539,8 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">{comic.title}</h1>
-        <Link
-          to={`/dashboard/${comic.id}/update`}
-          className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition"
-        >
-          Add Pages
-        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -504,6 +573,122 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
         <aside className="md:col-span-1">
+          {/* Chapters box (separate from settings form) */}
+          <div className="mb-6 p-6 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold">Chapters</h2>
+              {!reorderChapters ? (
+                <button
+                  type="button"
+                  onClick={() => setReorderChapters(true)}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  Reorder chapters
+                </button>
+              ) : (
+                <div className="inline-flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
+                    onClick={() => {
+                      setChapterIds(comic.chapters.map(c => c.id));
+                      setReorderChapters(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <Form method="post" className="inline-flex items-center gap-2">
+                    <input type="hidden" name="intent" value="reorderChapters" />
+                    <input type="hidden" name="order" value={chapterIds.join(",")} />
+                    <button
+                      type="submit"
+                      className="inline-flex items-center rounded-md bg-indigo-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-indigo-500 transition"
+                    >
+                      Save
+                    </button>
+                  </Form>
+                </div>
+              )}
+            </div>
+            {comic.chapters.length === 0 ? (
+              <p className="mt-1 text-gray-500 text-sm">No chapters</p>
+            ) : !reorderChapters ? (
+              <ul className="mt-2 space-y-1 text-sm">
+                {comic.chapters.map((ch) => {
+                  const isFuture = ch.publishedDate && new Date(ch.publishedDate) > new Date();
+                  const dateStr = isFuture && ch.publishedDate ? new Date(ch.publishedDate).toLocaleDateString() : null;
+                  return (
+                    <li key={ch.id} className="flex items-center gap-2">
+                      <Link 
+                        to={`/dashboard/${comic.id}/${ch.id}`}
+                        className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      >
+                        {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
+                      </Link>
+                      {!ch.publishedDate ? (
+                        <span className="text-xs text-gray-400">Unpublished</span>
+                      ) : isFuture ? (
+                        <span className="text-xs text-gray-400">Scheduled for {dateStr}</span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="mt-3">
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={chapterIds} strategy={rectSortingStrategy}>
+                    <ul className="space-y-2">
+                      {chapterIds.map((id) => {
+                        const ch = comic.chapters.find(c => c.id === id)!;
+                        return <SortableChapter key={id} id={id} title={ch.title} count={ch._count.pages} />;
+                      })}
+                    </ul>
+                  </SortableContext>
+                </DndContext>
+              </div>
+            )}
+            
+            {/* New Chapter toggle */}
+            {!showNewChapter ? (
+              <button
+                type="button"
+                onClick={() => setShowNewChapter(true)}
+                className="mt-4 inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+              >
+                <span className="text-base leading-none">＋</span>
+                New Chapter
+              </button>
+            ) : (
+              <Form method="post" className="mt-4 space-y-2">
+                <input type="hidden" name="intent" value="createChapter" />
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Chapter title"
+                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm"
+                  autoFocus
+                  required
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center rounded-md bg-indigo-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-indigo-500 transition"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewChapter(false)}
+                    className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </Form>
+            )}
+          </div>
+
           <Form method="post" encType="multipart/form-data" id="comic-settings-form" className="space-y-4 p-6 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
             <input type="hidden" name="intent" value="updateComic" />
             <div className="flex items-center justify-between mb-2">
@@ -666,50 +851,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                 />
               )}
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase">Chapters</h2>
-              {comic.chapters.length > 0 ? (
-                <ul className="mt-2 space-y-1 text-sm">
-                  {(isEditing ? orderedChapters : comic.chapters).map((ch, index) => {
-                    const future = ch.publishedDate && new Date(ch.publishedDate) > new Date();
-                    const dateStr = future ? new Date(ch.publishedDate!).toISOString().slice(0,10) : null;
-                    return isEditing ? (
-                      <li
-                        key={ch.id}
-                        draggable
-                        onDragStart={() => handleDragStart(index)}
-                        onDragOver={(e) => handleDragOver(e, index)}
-                        onDragEnd={handleDragEnd}
-                        className="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded cursor-move hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        <input type="hidden" name={`chapter_${index}`} value={ch.id} />
-                        <span className="text-gray-400">☰</span>
-                        <span className="text-gray-900 dark:text-gray-100">
-                          {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
-                        </span>
-                        {future && (
-                          <span className="text-xs text-gray-400">Scheduled for {dateStr}</span>
-                        )}
-                      </li>
-                    ) : (
-                      <li key={ch.id} className="flex items-center gap-2">
-                        <Link 
-                          to={`/dashboard/${comic.id}/${ch.id}`}
-                          className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
-                        >
-                          {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
-                        </Link>
-                        {future && (
-                          <span className="text-xs text-gray-400">Scheduled for {dateStr}</span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="mt-1 text-gray-500 text-sm">No chapters</p>
-              )}
-            </div>
+            {/* Chapters list moved to separate box above; removed from settings form */}
             {comic.chapters.length === 0 && (
               <div>
                 <h2 className="text-sm font-semibold text-gray-500 uppercase">Pages</h2>
@@ -726,5 +868,24 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
         </aside>
       </div>
     </main>
+  );
+}
+
+function SortableChapter({ id, title, count }: { id: string; title: string; count: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    cursor: 'grab',
+  };
+  return (
+    <li ref={setNodeRef} style={style} className="flex items-center justify-between gap-3 rounded border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-3 py-2 text-sm">
+      <div className="flex items-center gap-2">
+        <span {...attributes} {...listeners} className="text-gray-400 select-none">⋮⋮</span>
+        <span className="text-gray-900 dark:text-gray-100">{title}</span>
+      </div>
+      <span className="text-xs text-gray-500">{count} page{count !== 1 ? 's' : ''}</span>
+    </li>
   );
 }

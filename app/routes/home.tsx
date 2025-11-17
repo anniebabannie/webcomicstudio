@@ -152,9 +152,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
     const previewParams = searchParams.toString();
     
-    // Filter published chapters
+    // Filter published chapters: must have a publishedDate and it must not be in the future
     const publishedChapters = comic.chapters.filter(
-      (ch) => !ch.publishedDate || new Date(ch.publishedDate) <= new Date()
+      (ch) => ch.publishedDate && new Date(ch.publishedDate) <= new Date()
     );
     
     // Determine the first page URL

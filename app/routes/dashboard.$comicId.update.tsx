@@ -20,18 +20,24 @@ export async function loader(args: Route.LoaderArgs) {
     orderBy: { number: "asc" },
   });
   const pageCount = await prisma.page.count({ where: { comicId } });
-  return { comicId, chapters, pageCount };
+  const url = new URL(args.request.url);
+  const chapterId = url.searchParams.get("chapterId");
+  const pageLimitEnv = process.env.PAGE_LIMIT;
+  const pageLimit = pageLimitEnv ? parseInt(pageLimitEnv, 10) : 42;
+  return { comicId, chapters, pageCount, chapterId, pageLimit };
 }
 
 export default function UpdateComic({ loaderData }: Route.ComponentProps) {
   const actionData = useActionData<typeof action>();
-  const { comicId, chapters, pageCount } = loaderData as {
+  const { comicId, chapters, pageCount, chapterId, pageLimit } = loaderData as {
     comicId: string;
     chapters: { id: string; number: number; title: string }[];
     pageCount: number;
+    chapterId: string | null;
+    pageLimit: number;
   };
   const { has, isLoaded } = useAuth();
-  const PAGE_LIMIT = 42;
+  const PAGE_LIMIT = pageLimit;
   const PREMIUM_PLAN = "premium"; // TODO: set to your exact Clerk plan slug
   const hasChapters = chapters.length > 0;
   const [showNewChapter, setShowNewChapter] = useState(false);
@@ -88,6 +94,17 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
+      {actionData?.limitExceeded && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700 p-4">
+          <h2 className="font-semibold text-red-900 dark:text-red-200 mb-1">Page limit reached</h2>
+          <p className="text-sm text-red-800 dark:text-red-300">
+            {actionData.remaining === 0
+              ? `You've reached the maximum of ${pageLimit} pages for this comic. Delete pages or upgrade your plan to add more.`
+              : `You can only upload ${actionData.remaining} more page${actionData.remaining === 1 ? '' : 's'} right now.`}
+          </p>
+        </div>
+      )}
+
       <Form method="post" encType="multipart/form-data" className="space-y-8" onSubmit={e => {
         const input = (e.currentTarget.elements.namedItem("pages") as HTMLInputElement);
         if (input && input.files) {
@@ -127,7 +144,7 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
               name="chapterId"
               disabled={showNewChapter}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              defaultValue={chapters[0]?.id ?? ""}
+              defaultValue={chapterId || chapters[0]?.id || ""}
             >
               {chapters.map(c => (
                 <option key={c.id} value={c.id}>Chapter {c.number}: {c.title}</option>
@@ -201,20 +218,6 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         </div>
       </Form>
 
-      {/* Vision API Debug Output */}
-      {actionData?.visionResults && (
-        <div className="mt-8 space-y-4">
-          <h2 className="text-xl font-bold">Vision API Results (Debug)</h2>
-          {actionData.visionResults.map((result: any, idx: number) => (
-            <div key={idx} className="rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
-              <h3 className="font-semibold mb-2">{result.filename}</h3>
-              <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(result.data, null, 2)}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
     </main>
   );
 }
@@ -236,13 +239,28 @@ export async function action(args: Route.ActionArgs) {
     const files = formData.getAll("pages") as File[];
     if (files.length === 0) return new Response("No files uploaded", { status: 400 });
 
+    // Server-side limit check BEFORE any image processing
+    const pageLimitEnv = process.env.PAGE_LIMIT;
+    const pageLimit = pageLimitEnv ? parseInt(pageLimitEnv, 10) : 42;
+    const currentCount = await prisma.page.count({ where: { comicId } });
+    if (currentCount >= pageLimit) {
+      return { limitExceeded: true, remaining: 0, pageLimit };
+    }
+    const incoming = files.length;
+    if (currentCount + incoming > pageLimit) {
+      const remaining = Math.max(pageLimit - currentCount, 0);
+      return { limitExceeded: true, remaining, pageLimit };
+    }
+
     // Sort files by filename using natural (numeric-aware) order so 2 < 10
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
     const sortedFiles = files.slice().sort((a, b) => collator.compare(a.name, b.name));
 
-    // 1) Scan ALL images with Vision first
-    const vision = await import("@google-cloud/vision");
-    const client = new vision.ImageAnnotatorClient();
+  // 1) Scan ALL images with Vision first (use downscaled preview for speed)
+  const vision = await import("@google-cloud/vision");
+  const client = new vision.ImageAnnotatorClient();
+  const imageUtils = await import("../utils/image.server");
+  const { generateThumbnail, convertToWebP } = imageUtils;
     type VisionItem = { filename: string; data: any; allowed: boolean };
     const visionResults: VisionItem[] = [];
 
@@ -254,9 +272,11 @@ export async function action(args: Route.ActionArgs) {
 
     for (const file of sortedFiles) {
       const original = Buffer.from(await file.arrayBuffer());
+      // Create a small, compressed preview (e.g., 600px wide, q=70) for Vision
+      const preview = await generateThumbnail(original, 600, 70);
       try {
         const [result] = await client.annotateImage({
-          image: { content: original },
+          image: { content: preview },
           features: [{ type: 'SAFE_SEARCH_DETECTION' }]
         });
         const safe = result.safeSearchAnnotation;
@@ -270,8 +290,8 @@ export async function action(args: Route.ActionArgs) {
 
     const anyBlocked = visionResults.some(v => !v.allowed);
     if (anyBlocked) {
-      // Abort and show results; nothing uploaded
-      return { visionResults, blocked: true };
+      // Abort and show minimal info; nothing uploaded
+      return { blocked: true };
     }
 
     // 2) If all pass, proceed to resize and upload to S3, then create pages
@@ -297,7 +317,6 @@ export async function action(args: Route.ActionArgs) {
     let nextPageNumber = (maxPage?.number ?? 0) + 1;
 
     const { uploadBufferToS3 } = await import("../utils/s3.server");
-    const { convertToWebP, generateThumbnail } = await import("../utils/image.server");
     const { uuidv4 } = await import("../utils/uuid");
 
     for (let i = 0; i < sortedFiles.length; i++) {
@@ -315,7 +334,7 @@ export async function action(args: Route.ActionArgs) {
       await prisma.page.create({ data: { comicId, chapterId, imageUrl, number: pageNumber } });
     }
 
-    return redirect(`/dashboard/${comicId}`);
+    return redirect(chapterId ? `/dashboard/${comicId}/${chapterId}` : `/dashboard/${comicId}`);
   }
 
   return new Response("Unknown intent", { status: 400 });
