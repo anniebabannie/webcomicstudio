@@ -164,11 +164,19 @@ export async function loader({ request }: Route.LoaderArgs) {
       }
     }
     
-    return { type: 'comic' as const, comic, host: host || '', protocol: url.protocol.replace(':', '') };
+    const isDev = process.env.NODE_ENV === 'development';
+    const isStaging = process.env.NODE_ENV === 'staging';
+    const baseDomain = isDev ? 'localhost:5173' : isStaging ? 'wcsstaging.com' : 'webcomic.studio';
+    
+    return { type: 'comic' as const, comic, host: host || '', protocol: url.protocol.replace(':', ''), baseDomain };
   }
 
   // Root domain - show marketing page
-  return { type: 'admin' as const, host: host || '', protocol: url.protocol.replace(':', '') };
+  const isDev = process.env.NODE_ENV === 'development';
+  const isStaging = process.env.NODE_ENV === 'staging';
+  const baseDomain = isDev ? 'localhost:5173' : isStaging ? 'wcsstaging.com' : 'webcomic.studio';
+  
+  return { type: 'admin' as const, host: host || '', protocol: url.protocol.replace(':', ''), baseDomain };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
@@ -317,7 +325,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <div className="fixed bottom-4 left-4 text-xs text-gray-500 dark:text-gray-400">
           Powered by{" "}
           <a
-            href={import.meta.env.DEV ? "http://localhost:5173" : (import.meta.env.NODE_ENV === 'staging' || process.env.NODE_ENV === 'staging') ? "https://wcsstaging.com" : "https://webcomic.studio"}
+            href={loaderData.baseDomain.includes('localhost') ? `http://${loaderData.baseDomain}` : `https://${loaderData.baseDomain}`}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-gray-700 dark:hover:text-gray-300 underline transition"

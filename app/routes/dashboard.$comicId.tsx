@@ -90,7 +90,13 @@ export async function loader(args: Route.LoaderArgs) {
   }
 
   if (!comic) throw new Response("Not Found", { status: 404 });
-  return { comic, recentPageImage };
+  
+  // Determine environment on server side
+  const isDev = process.env.NODE_ENV === 'development';
+  const isStaging = process.env.NODE_ENV === 'staging';
+  const baseDomain = isDev ? 'localhost:5173' : isStaging ? 'wcsstaging.com' : 'webcomic.studio';
+  
+  return { comic, recentPageImage, baseDomain, isDev };
 }
 
 export async function action(args: Route.ActionArgs) {
@@ -431,7 +437,7 @@ export async function action(args: Route.ActionArgs) {
 }
 
 export default function ComicDetail({ loaderData }: Route.ComponentProps) {
-  const { comic, recentPageImage } = loaderData as {
+  const { comic, recentPageImage, baseDomain, isDev } = loaderData as {
     comic: {
       id: string;
       title: string;
@@ -449,6 +455,8 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
       _count: { pages: number };
     };
     recentPageImage: string | null;
+    baseDomain: string;
+    isDev: boolean;
   };
 
   const [isEditing, setIsEditing] = useState(false);
@@ -570,14 +578,9 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
   };
 
   const getPreviewUrl = () => {
-    const isDev = import.meta.env.DEV;
-    const isStaging = import.meta.env.NODE_ENV === 'staging' || process.env.NODE_ENV === 'staging';
-    
     const baseUrl = isDev 
-      ? `http://${comic.slug}.localhost:5173`
-      : isStaging
-      ? `https://${comic.slug}.wcsstaging.com`
-      : `https://${comic.slug}.webcomic.studio`;
+      ? `http://${comic.slug}.${baseDomain}`
+      : `https://${comic.slug}.${baseDomain}`;
     
     const params = new URLSearchParams({
       preview: 'true',
@@ -788,7 +791,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                       pattern="[a-z0-9-]+"
                     />
                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                      .{import.meta.env.DEV ? 'localhost:5173' : (import.meta.env.NODE_ENV === 'staging' || process.env.NODE_ENV === 'staging') ? 'wcsstaging.com' : 'webcomic.studio'}
+                      .{baseDomain}
                     </span>
                   </div>
                   {actionData?.error === "subdomain" && (
@@ -799,13 +802,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                 </div>
               ) : (
                 (() => {
-                  const isDev = import.meta.env.DEV;
-                  const isStaging = import.meta.env.NODE_ENV === 'staging' || process.env.NODE_ENV === 'staging';
-                  const domain = isDev
-                    ? `${comic.slug}.localhost:5173`
-                    : isStaging
-                    ? `${comic.slug}.wcsstaging.com`
-                    : `${comic.slug}.webcomic.studio`;
+                  const domain = `${comic.slug}.${baseDomain}`;
                   const href = `${isDev ? "http" : "https"}://${domain}`;
                   return (
                     <a
@@ -832,7 +829,6 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                 />
               ) : comic.domain ? (
                 (() => {
-                  const isDev = import.meta.env.DEV;
                   const href = isDev
                     ? `http://${comic.domain}:5173`
                     : `https://${comic.domain}`;
