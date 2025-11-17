@@ -43,8 +43,12 @@ FROM base
 
 # Install packages needed for deployment
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y openssl && \
+    apt-get install --no-install-recommends -y openssl curl && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Install flyctl
+RUN curl -L https://fly.io/install.sh | sh
+ENV PATH="/root/.fly/bin:${PATH}"
 
 # Copy built application
 COPY --from=build /app /app

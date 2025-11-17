@@ -1,5 +1,5 @@
 import type { Route } from "./+types/dashboard.$comicId";
-import { redirect, Link, Form, useNavigation, useActionData } from "react-router";
+import { redirect, Link, Form, useNavigation, useActionData, data } from "react-router";
 import {
   DndContext,
   closestCenter,
@@ -363,39 +363,84 @@ export async function action(args: Route.ActionArgs) {
   
   if (intent === "addDomain") {
     const domain = formData.get("domain") as string | null;
-    if (!domain) return new Response("Domain required", { status: 400 });
-    
-    // Basic domain validation (simple check for now)
-    const trimmedDomain = domain.trim().toLowerCase();
-    if (!trimmedDomain || trimmedDomain.includes('://')) {
-      return new Response("Invalid domain format", { status: 400 });
+    if (!domain) {
+      return data({ error: "domain", message: "Domain required" }, { status: 400 });
     }
     
-    // Check if domain already in use
+    // Basic domain validation
+    const trimmedDomain = domain.trim().toLowerCase();
+    if (!trimmedDomain || trimmedDomain.includes('://') || trimmedDomain.includes('/')) {
+      return data({ error: "domain", message: "Invalid domain format. Use example.com without http:// or https://" }, { status: 400 });
+    }
+    
+    // Check if domain already in use by another comic
     const existing = await prisma.comic.findUnique({ where: { domain: trimmedDomain } });
     if (existing && existing.id !== comicId) {
-      return new Response("Domain already in use", { status: 400 });
+      return data({ error: "domain", message: "Domain already in use by another comic" }, { status: 400 });
     }
     
+    // Add certificate to Fly.io (skipped in development)
+    const { addFlyCertificate } = await import("../utils/flyctl.server");
+    const certResult = await addFlyCertificate(trimmedDomain);
+    
+    if (!certResult.success) {
+      return data({ 
+        error: "domain", 
+        message: `Failed to add SSL certificate: ${certResult.error}` 
+      }, { status: 500 });
+    }
+    
+    // Save domain to database
     await prisma.comic.update({ 
       where: { id: comicId }, 
       data: { domain: trimmedDomain } 
     });
+    
     return redirect(`/dashboard/${comicId}`);
   }
   
   if (intent === "updateDomain") {
     const domain = formData.get("domain") as string | null;
-    if (!domain) return new Response("Domain required", { status: 400 });
-    const trimmedDomain = domain.trim().toLowerCase();
-    if (!trimmedDomain || trimmedDomain.includes('://')) {
-      return new Response("Invalid domain format", { status: 400 });
+    const currentComic = await prisma.comic.findUnique({ where: { id: comicId } });
+    
+    if (!domain) {
+      return data({ error: "domain", message: "Domain required" }, { status: 400 });
     }
+    
+    const trimmedDomain = domain.trim().toLowerCase();
+    if (!trimmedDomain || trimmedDomain.includes('://') || trimmedDomain.includes('/')) {
+      return data({ error: "domain", message: "Invalid domain format. Use example.com without http:// or https://" }, { status: 400 });
+    }
+    
+    // Check if domain already in use by another comic
     const existing = await prisma.comic.findUnique({ where: { domain: trimmedDomain } });
     if (existing && existing.id !== comicId) {
-      return new Response("Domain already in use", { status: 400 });
+      return data({ error: "domain", message: "Domain already in use by another comic" }, { status: 400 });
     }
-    await prisma.comic.update({ where: { id: comicId }, data: { domain: trimmedDomain } });
+    
+    const { addFlyCertificate, removeFlyCertificate } = await import("../utils/flyctl.server");
+    
+    // Remove old certificate if domain is changing
+    if (currentComic?.domain && currentComic.domain !== trimmedDomain) {
+      await removeFlyCertificate(currentComic.domain);
+    }
+    
+    // Add new certificate
+    const certResult = await addFlyCertificate(trimmedDomain);
+    
+    if (!certResult.success) {
+      return data({ 
+        error: "domain", 
+        message: `Failed to add SSL certificate: ${certResult.error}` 
+      }, { status: 500 });
+    }
+    
+    // Save domain to database
+    await prisma.comic.update({ 
+      where: { id: comicId }, 
+      data: { domain: trimmedDomain } 
+    });
+    
     return redirect(`/dashboard/${comicId}`);
   }
   
