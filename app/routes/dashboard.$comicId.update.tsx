@@ -257,6 +257,9 @@ export async function action(args: Route.ActionArgs) {
     const sortedFiles = files.slice().sort((a, b) => collator.compare(a.name, b.name));
 
   // 1) Scan ALL images with Vision first (use downscaled preview for speed)
+  // Ensure credentials are available via GOOGLE_APPLICATION_CREDENTIALS
+  const { ensureGoogleApplicationCredentials } = await import("../utils/google-credentials.server");
+  await ensureGoogleApplicationCredentials();
   const vision = await import("@google-cloud/vision");
   const client = new vision.ImageAnnotatorClient();
   const imageUtils = await import("../utils/image.server");
