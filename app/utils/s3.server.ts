@@ -27,7 +27,7 @@ export async function uploadToS3(
   );
 
   // Return public URL (Tigris public bucket format)
-  return `https://webcomicstudio.t3.storage.dev/${key}`;
+  return `https://${BUCKET_NAME}.t3.storage.dev/${key}`;
 }
 
 export async function uploadBufferToS3(
@@ -43,7 +43,7 @@ export async function uploadBufferToS3(
       ContentType: contentType,
     })
   );
-  return `https://webcomicstudio.t3.storage.dev/${key}`;
+  return `https://${BUCKET_NAME}.t3.storage.dev/${key}`;
 }
 
 /** Delete a single object by key */
