@@ -2,7 +2,7 @@ import type { Route } from "./+types/dashboard.$comicId.update";
 import { useEffect, useRef, useState } from "react";
 import { getAuth } from "@clerk/react-router/server";
 import { useAuth, PricingTable } from "@clerk/react-router";
-import { redirect, Form, Link, useActionData } from "react-router";
+import { redirect, Form, Link, useActionData, useNavigation } from "react-router";
 import { prisma } from "../utils/db.server";
 // import { uuidv4 } from "../utils/uuid"; // not used in debug mode
 
@@ -37,6 +37,25 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
     pageLimit: number;
   };
   const { has, isLoaded } = useAuth();
+  const navigation = useNavigation();
+  const isUploading = navigation.state === 'submitting' && navigation.formData?.get('intent') === 'uploadPages';
+  const [uploadStage, setUploadStage] = useState<'preparing' | 'uploading' | null>(null);
+  
+  // Progress stage management during upload
+  useEffect(() => {
+    if (isUploading) {
+      // Start with preparing
+      setUploadStage('preparing');
+      // Switch to uploading after 3 seconds
+      const timer = setTimeout(() => {
+        setUploadStage('uploading');
+      }, 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setUploadStage(null);
+    }
+  }, [isUploading]);
+  
   const PAGE_LIMIT = pageLimit;
   const PREMIUM_PLAN = "premium"; // TODO: set to your exact Clerk plan slug
   const hasChapters = chapters.length > 0;
@@ -85,7 +104,19 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
       </div>
       <h1 className="text-2xl font-bold tracking-tight mb-6">Add Pages</h1>
 
-      {actionData?.blocked && (
+      {uploadStage && (
+        <div className="mb-6 rounded-lg border border-indigo-300 bg-indigo-50 dark:bg-indigo-900/20 dark:border-indigo-700 p-4">
+          <div className="flex items-center gap-3">
+            <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-indigo-600/30 border-t-indigo-600 dark:border-indigo-400/30 dark:border-t-indigo-400"></span>
+            <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200">
+              {uploadStage === 'preparing' && 'Preparing images for upload...'}
+              {uploadStage === 'uploading' && 'Uploading pages...'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!uploadStage && actionData?.blocked && (
         <div className="mb-6 rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700 p-4">
           <h2 className="font-semibold text-red-900 dark:text-red-200 mb-1">Upload blocked</h2>
           <p className="text-sm text-red-800 dark:text-red-300">
@@ -94,7 +125,7 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {actionData?.limitExceeded && (
+      {!uploadStage && actionData?.limitExceeded && (
         <div className="mb-6 rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700 p-4">
           <h2 className="font-semibold text-red-900 dark:text-red-200 mb-1">Page limit reached</h2>
           <p className="text-sm text-red-800 dark:text-red-300">
@@ -105,7 +136,7 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      <Form method="post" encType="multipart/form-data" className="space-y-8" onSubmit={e => {
+      <Form method="post" encType="multipart/form-data" className={`space-y-8 ${isUploading ? 'opacity-60' : ''}`} aria-busy={isUploading} onSubmit={e => {
         const input = (e.currentTarget.elements.namedItem("pages") as HTMLInputElement);
         if (input && input.files) {
           for (const file of input.files) {
@@ -124,25 +155,26 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         }
       }}>
         <input type="hidden" name="intent" value="uploadPages" />
-        <fieldset className="space-y-4">
+        <fieldset className="space-y-4" disabled={isUploading}>
           <legend className="text-sm font-semibold text-gray-500 uppercase">Page Images</legend>
           <input
             type="file"
             name="pages"
             multiple
             accept="image/jpeg,image/png,image/webp"
-            className="block w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 text-sm"
+            className="block w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             required
+            disabled={isUploading}
           />
           <p className="text-xs text-gray-500">Select JPEG, PNG, or WebP images (max 5MB each).</p>
         </fieldset>
 
         {hasChapters && (
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2" disabled={isUploading}>
             <legend className="text-sm font-semibold text-gray-500 uppercase">Chapter</legend>
             <select
               name="chapterId"
-              disabled={showNewChapter}
+              disabled={showNewChapter || isUploading}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               defaultValue={chapterId || chapters[0]?.id || ""}
             >
@@ -157,7 +189,8 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
                 <button
                   type="button"
                   onClick={() => setShowNewChapter(true)}
-                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                  disabled={isUploading}
+                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="text-base leading-none">＋</span>
                   New chapter
@@ -171,7 +204,8 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
                   type="text"
                   name="newChapterTitle"
                   placeholder="Enter new chapter title"
-                  className="flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm"
+                  className="flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm disabled:opacity-50"
+                  disabled={isUploading}
                 />
                 <button
                   type="button"
@@ -179,7 +213,8 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
                     if (newChapterRef.current) newChapterRef.current.value = "";
                     setShowNewChapter(false);
                   }}
-                  className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                  className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isUploading}
                 >
                   Cancel
                 </button>
@@ -190,13 +225,14 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         )}
 
         {!hasChapters && (
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2" disabled={isUploading}>
             <legend className="text-sm font-semibold text-gray-500 uppercase">New Chapter</legend>
             <input
               type="text"
               name="newChapterTitle"
               placeholder="Enter chapter title"
-              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm"
+              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm disabled:opacity-50"
+              disabled={isUploading}
             />
             <p className="text-xs text-gray-500">Leave blank to create pages without a chapter.</p>
           </fieldset>
@@ -205,9 +241,13 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         <div className="flex items-center gap-4">
           <button
             type="submit"
-            className="inline-flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition"
+            disabled={isUploading}
+            className="inline-flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Upload Pages
+            {isUploading && (
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white"></span>
+            )}
+            {isUploading ? 'Uploading…' : 'Upload Pages'}
           </button>
           <a
             href={`/dashboard/${comicId}`}
@@ -257,9 +297,6 @@ export async function action(args: Route.ActionArgs) {
     const sortedFiles = files.slice().sort((a, b) => collator.compare(a.name, b.name));
 
   // 1) Scan ALL images with Vision first (use downscaled preview for speed)
-  // Ensure credentials are available via GOOGLE_APPLICATION_CREDENTIALS
-  const { ensureGoogleApplicationCredentials } = await import("../utils/google-credentials.server");
-  await ensureGoogleApplicationCredentials();
   const vision = await import("@google-cloud/vision");
   const client = new vision.ImageAnnotatorClient();
   const imageUtils = await import("../utils/image.server");

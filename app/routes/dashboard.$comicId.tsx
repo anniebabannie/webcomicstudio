@@ -740,7 +740,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
           <Form method="post" encType="multipart/form-data" id="comic-settings-form" className="space-y-4 p-6 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
             <input type="hidden" name="intent" value="updateComic" />
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold">Comic Settings</h2>
+              <h2 className="text-lg font-semibold">Settings</h2>
               <div className="flex gap-2">
                 {isEditing && (
                   <>
@@ -767,7 +767,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                   disabled={isSubmitting}
                   className="text-sm font-medium text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isEditing ? "Cancel" : "Edit Comic"}
+                  {isEditing ? "Cancel" : "Edit"}
                 </button>
               </div>
             </div>

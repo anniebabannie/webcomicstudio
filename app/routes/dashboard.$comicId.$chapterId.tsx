@@ -478,6 +478,28 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
             </button>
           )}
           {selectMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  const allIds = new Set(chapter.pages.map(p => p.id));
+                  setSelectedPages(allIds);
+                }}
+                className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white transition"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPages(new Set())}
+                disabled={selectedPages.size === 0}
+                className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Deselect All
+              </button>
+            </>
+          )}
+          {selectMode && (
             <div className="flex items-center gap-2">
               {/* Delete Selected (UI only for now) */}
               <fetcher.Form
