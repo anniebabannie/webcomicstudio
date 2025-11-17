@@ -7,8 +7,27 @@ import { prisma } from "../utils/db.server";
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.page) {
+    const fullDesc = data.comic.description?.replace(/\s+/g, ' ').trim() || `Read ${data.comic.title}`;
+    const truncated = fullDesc.slice(0, 160) + (fullDesc.length > 160 ? '…' : '');
+    
+    // Build social image URL using the actual host and protocol from the request
+    const host = data.host || 'webcomic.studio';
+    const protocol = data.protocol || 'https';
+    const ogImageUrl = `${protocol}://${host}/api/og-image/${data.comic.id}`;
+    
     return [
       { title: `Page ${data.page.number} • ${data.comic.title}` },
+      { name: "description", content: truncated },
+      // Open Graph tags
+      { property: "og:title", content: data.comic.title },
+      { property: "og:description", content: truncated },
+      { property: "og:image", content: ogImageUrl },
+      { property: "og:type", content: "website" },
+      // Twitter Card tags
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: data.comic.title },
+      { name: "twitter:description", content: truncated },
+      { name: "twitter:image", content: ogImageUrl },
     ];
   }
   return [{ title: "Page" }];
@@ -118,7 +137,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (nextStart <= last) nextPage = { number: nextStart };
   }
 
-  return { comic, page, pages, spreadStart, prevPage, nextPage };
+  return { comic, page, pages, spreadStart, prevPage, nextPage, host: host || '', protocol: url.protocol.replace(':', '') };
 }
 
 export default function StandalonePage({ loaderData }: Route.ComponentProps) {

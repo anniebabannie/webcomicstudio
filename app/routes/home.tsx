@@ -9,9 +9,25 @@ export function meta({ data }: Route.MetaArgs) {
   if (data?.comic) {
     const fullDesc = data.comic.description?.replace(/\s+/g, ' ').trim() || `Read ${data.comic.title}`;
     const truncated = fullDesc.slice(0, 160) + (fullDesc.length > 160 ? '…' : '');
+    
+    // Build social image URL using the actual host and protocol from the request
+    const host = data.host || 'webcomic.studio';
+    const protocol = data.protocol || 'https';
+    const ogImageUrl = `${protocol}://${host}/api/og-image/${data.comic.id}`;
+    
     const meta: any[] = [
       { title: data.comic.tagline ? `${data.comic.title} • ${data.comic.tagline}` : data.comic.title },
       { name: "description", content: truncated },
+      // Open Graph tags
+      { property: "og:title", content: data.comic.title },
+      { property: "og:description", content: truncated },
+      { property: "og:image", content: ogImageUrl },
+      { property: "og:type", content: "website" },
+      // Twitter Card tags
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: data.comic.title },
+      { name: "twitter:description", content: truncated },
+      { name: "twitter:image", content: ogImageUrl },
     ];
     if (data.comic.favicon) {
       meta.push({ tagName: "link", rel: "icon", href: data.comic.favicon });
@@ -148,11 +164,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       }
     }
     
-    return { type: 'comic' as const, comic };
+    return { type: 'comic' as const, comic, host: host || '', protocol: url.protocol.replace(':', '') };
   }
 
   // Root domain - show marketing page
-  return { type: 'admin' as const };
+  return { type: 'admin' as const, host: host || '', protocol: url.protocol.replace(':', '') };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {

@@ -115,9 +115,9 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
               alert("Only JPEG, PNG, or WebP images are allowed.");
               return;
             }
-            if (file.size > 3 * 1024 * 1024) {
+            if (file.size > 5 * 1024 * 1024) {
               e.preventDefault();
-              alert("Each file must be 3MB or smaller.");
+              alert("Each file must be 5MB or smaller.");
               return;
             }
           }
@@ -134,7 +134,7 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
             className="block w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-3 text-sm"
             required
           />
-          <p className="text-xs text-gray-500">Select JPEG, PNG, or WebP images (max 3MB each).</p>
+          <p className="text-xs text-gray-500">Select JPEG, PNG, or WebP images (max 5MB each).</p>
         </fieldset>
 
         {hasChapters && (
