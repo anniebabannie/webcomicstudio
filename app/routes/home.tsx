@@ -7,10 +7,16 @@ import { NavBar } from '../components/NavBar';
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.comic) {
-    return [
-      { title: `${data.comic.title} • Webcomic` },
-      { name: "description", content: data.comic.description || `Read ${data.comic.title}` },
+    const fullDesc = data.comic.description?.replace(/\s+/g, ' ').trim() || `Read ${data.comic.title}`;
+    const truncated = fullDesc.slice(0, 160) + (fullDesc.length > 160 ? '…' : '');
+    const meta: any[] = [
+      { title: data.comic.tagline ? `${data.comic.title} • ${data.comic.tagline}` : data.comic.title },
+      { name: "description", content: truncated },
     ];
+    if (data.comic.favicon) {
+      meta.push({ tagName: "link", rel: "icon", href: data.comic.favicon });
+    }
+    return meta;
   }
   return [
     { title: "WebComic Studio" },
@@ -42,8 +48,11 @@ export async function loader({ request }: Route.LoaderArgs) {
         id: true,
         title: true,
         description: true,
+          tagline: true,
         thumbnail: true,
         logo: true,
+        favicon: true,
+        doubleSpread: true,
         chapters: {
           select: {
             id: true,
@@ -82,8 +91,11 @@ export async function loader({ request }: Route.LoaderArgs) {
           id: true,
           title: true,
           description: true,
+            tagline: true,
           thumbnail: true,
           logo: true,
+          favicon: true,
+          doubleSpread: true,
           chapters: {
             select: {
               id: true,
@@ -181,11 +193,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               ) : (
                 <h1 className="text-lg font-semibold text-white">{comic.title}</h1>
               )}
-              {comic.description && (
-                <p className="text-sm text-gray-400 hidden sm:block">
-                  {comic.description.slice(0, 100)}{comic.description.length > 100 ? '...' : ''}
-                </p>
-              )}
+                {comic.tagline && (
+                  <p className="text-sm text-gray-400 hidden sm:block">
+                    {comic.tagline.slice(0, 90)}{comic.tagline.length > 90 ? '...' : ''}
+                  </p>
+                )}
             </div>
             {publishedChapters.length > 0 && (
               <div className="flex items-center gap-3 text-sm">
@@ -218,11 +230,22 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                   className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="">--</option>
-                  {publishedChapters[0]?.pages.map((p) => (
-                    <option key={p.number} value={p.number}>
-                      Page {p.number}
-                    </option>
-                  ))}
+                  {comic.doubleSpread
+                    ? publishedChapters[0]?.pages
+                        .filter((p) => (p.number - 1) % 2 === 0)
+                        .map((p) => {
+                          const maxPage = publishedChapters[0].pages[publishedChapters[0].pages.length - 1]?.number ?? p.number;
+                          return (
+                            <option key={p.number} value={p.number}>
+                              {p.number}–{p.number + 1 <= maxPage ? p.number + 1 : ""}
+                            </option>
+                          );
+                        })
+                    : publishedChapters[0]?.pages.map((p) => (
+                        <option key={p.number} value={p.number}>
+                          Page {p.number}
+                        </option>
+                      ))}
                 </select>
               </div>
             )}

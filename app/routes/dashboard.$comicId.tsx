@@ -38,10 +38,12 @@ export async function loader(args: Route.LoaderArgs) {
       id: true,
       title: true,
       description: true,
+      tagline: true,
       slug: true,
       domain: true,
       thumbnail: true,
       logo: true,
+      favicon: true,
       doubleSpread: true,
       createdAt: true,
       updatedAt: true,
@@ -108,15 +110,19 @@ export async function action(args: Route.ActionArgs) {
   if (intent === "updateComic") {
     const slug = formData.get("slug") as string | null;
     const domain = formData.get("domain") as string | null;
+    const taglineRaw = formData.get("tagline") as string | null;
+    const tagline = taglineRaw ? taglineRaw.slice(0, 80) : null; // enforce max 80 chars
     const description = formData.get("description") as string | null;
     const doubleSpread = formData.get("doubleSpread") === "on";
     
     // Handle file uploads
     const thumbnailFile = formData.get("thumbnail") as File | null;
     const logoFile = formData.get("logo") as File | null;
+    const faviconFile = formData.get("favicon") as File | null;
     
     const updates: any = {
       domain: domain || null,
+      tagline: tagline || null,
       description: description || null,
       doubleSpread,
     };
@@ -203,6 +209,28 @@ export async function action(args: Route.ActionArgs) {
       const key = `${userId}/${comicId}/logo-${uuid}.webp`;
       const url = await uploadBufferToS3(webp, key, "image/webp");
       updates.logo = url;
+    }
+    
+    // Upload favicon if provided
+    if (faviconFile && faviconFile.size > 0) {
+      const validTypes = ["image/jpeg", "image/png", "image/webp"];
+      if (!validTypes.includes(faviconFile.type)) return new Response("Invalid favicon type", { status: 400 });
+      if (faviconFile.size > 2 * 1024 * 1024) return new Response("Favicon too large", { status: 400 });
+      
+      const [{ uploadBufferToS3 }] = await Promise.all([
+        import("../utils/s3.server"),
+      ]);
+      const sharp = (await import("sharp")).default;
+      const buffer = Buffer.from(await faviconFile.arrayBuffer());
+      // Resize to 32x32 for favicon and convert to PNG
+      const pngBuffer = await sharp(buffer)
+        .resize(32, 32, { fit: 'cover' })
+        .png()
+        .toBuffer();
+      const uuid = crypto.randomUUID();
+      const key = `${userId}/${comicId}/favicon-${uuid}.png`;
+      const url = await uploadBufferToS3(pngBuffer, key, "image/png");
+      updates.favicon = url;
     }
     
     await prisma.comic.update({ where: { id: comicId }, data: updates });
@@ -408,11 +436,13 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
       id: string;
       title: string;
       description: string | null;
+      tagline: string | null;
       slug: string;
       domain?: string | null;
       doubleSpread?: boolean;
       thumbnail: string | null;
       logo?: string | null;
+      favicon?: string | null;
       createdAt: Date;
       updatedAt: Date;
   chapters: { id: string; number: number; title: string; publishedDate: Date | null; _count: { pages: number } }[];
@@ -423,7 +453,9 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+  const [tagline, setTagline] = useState(comic.tagline || '');
   const [description, setDescription] = useState(comic.description || '');
   const [doubleSpread, setDoubleSpread] = useState(comic.doubleSpread || false);
   const [showNewChapter, setShowNewChapter] = useState(false);
@@ -461,6 +493,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
     if (wasSubmitting && isNowIdle && isEditing && !actionData?.error) {
       setIsEditing(false);
       setLogoPreview(null);
+      setFaviconPreview(null);
       setThumbnailPreview(null);
     }
     
@@ -489,11 +522,13 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
   useEffect(() => {
     if (!isEditing) {
       setLogoPreview(null);
+      setFaviconPreview(null);
       setThumbnailPreview(null);
+      setTagline(comic.tagline || '');
       setDescription(comic.description || '');
       setDoubleSpread(comic.doubleSpread || false);
     }
-  }, [isEditing, comic.chapters, comic.description, comic.doubleSpread]);
+  }, [isEditing, comic.chapters, comic.tagline, comic.description, comic.doubleSpread]);
 
   const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -518,6 +553,19 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
       reader.readAsDataURL(file);
     } else {
       setLogoPreview(null);
+    }
+  };
+
+  const handleFaviconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFaviconPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setFaviconPreview(null);
     }
   };
 
@@ -798,6 +846,33 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
               )}
             </div>
             <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase">Tagline</h2>
+              {isEditing ? (
+                <div className="mt-1">
+                  <input
+                    type="text"
+                    name="tagline"
+                    value={tagline}
+                    onChange={(e) => setTagline(e.target.value.slice(0,80))}
+                    onKeyDown={(e) => {
+                      const allowed = ["Backspace","Delete","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End","Tab"]; 
+                      if (tagline.length >= 80 && !allowed.includes(e.key) && !e.metaKey && !e.ctrlKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    maxLength={80}
+                    placeholder="A short catchy tagline"
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  />
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 text-right">{tagline.length}/80</div>
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                  {comic.tagline || "—"}
+                </p>
+              )}
+            </div>
+            <div>
               <h2 className="text-sm font-semibold text-gray-500 uppercase">Description</h2>
               {isEditing ? (
                 <textarea
@@ -847,6 +922,25 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                   name="logo"
                   accept="image/jpeg,image/png,image/webp"
                   onChange={handleLogoChange}
+                  className="mt-2 block w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-2 text-xs"
+                />
+              )}
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase">Favicon</h2>
+              {(faviconPreview || comic.favicon) ? (
+                <div className="mt-2 p-4 rounded bg-gray-200 dark:bg-gray-700 inline-block">
+                  <img src={faviconPreview || comic.favicon!} alt="Favicon" className="max-w-[32px] max-h-[32px]" />
+                </div>
+              ) : (
+                <p className="mt-1 text-gray-500 text-sm">No favicon</p>
+              )}
+              {isEditing && (
+                <input
+                  type="file"
+                  name="favicon"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleFaviconChange}
                   className="mt-2 block w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-2 text-xs"
                 />
               )}

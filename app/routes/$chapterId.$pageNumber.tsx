@@ -7,9 +7,16 @@ import { prisma } from "../utils/db.server";
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.page) {
-    return [
-      { title: `Page ${data.page.number} • ${data.comic.title}` },
+    const fullDesc = data.comic.description?.replace(/\s+/g, ' ').trim() || `Read ${data.comic.title}`;
+    const truncated = fullDesc.slice(0, 160) + (fullDesc.length > 160 ? '…' : '');
+    const meta: any[] = [
+      { title: data.comic.tagline ? `${data.comic.title} • ${data.comic.tagline}` : data.comic.title },
+      { name: "description", content: truncated },
     ];
+    if (data.comic.favicon) {
+      meta.push({ tagName: "link", rel: "icon", href: data.comic.favicon });
+    }
+    return meta;
   }
   return [{ title: "Page" }];
 }
@@ -40,7 +47,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     id: string;
     title: string;
     description: string | null;
+      tagline: string | null;
     logo: string | null;
+    favicon: string | null;
     doubleSpread: boolean;
     chapters: { id: string; number: number; title: string; publishedDate: Date | null }[];
   };
@@ -52,7 +61,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         id: true,
         title: true,
         description: true,
+          tagline: true,
         logo: true,
+        favicon: true,
         doubleSpread: true,
         chapters: {
           orderBy: { number: "asc" },
@@ -69,7 +80,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         id: true,
         title: true,
         description: true,
+          tagline: true,
         logo: true,
+        favicon: true,
         doubleSpread: true,
         chapters: {
           orderBy: { number: "asc" },
@@ -240,7 +253,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 export default function ComicPage({ loaderData }: Route.ComponentProps) {
   const data = loaderData as {
-    comic: { id: string; title: string; description?: string | null; logo?: string | null; doubleSpread?: boolean; chapters: { id: string; number: number; title: string; publishedDate: Date | null }[] };
+  comic: { id: string; title: string; tagline?: string | null; description?: string | null; logo?: string | null; doubleSpread?: boolean; chapters: { id: string; number: number; title: string; publishedDate: Date | null }[] };
     chapter: { id: string; number: number; title: string };
     page: { id: string; number: number; imageUrl: string };
     pages?: { id: string; number: number; imageUrl: string }[];
@@ -292,9 +305,9 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
             ) : (
               <h1 className="text-lg font-semibold">{comic.title}</h1>
             )}
-            {comic.description && (
+            {comic.tagline && (
               <p className="text-sm text-gray-400 hidden sm:block">
-                {comic.description.slice(0, 100)}{comic.description.length > 100 ? '...' : ''}
+                {comic.tagline.slice(0, 80)}{comic.tagline.length > 80 ? '...' : ''}
               </p>
             )}
           </Link>
