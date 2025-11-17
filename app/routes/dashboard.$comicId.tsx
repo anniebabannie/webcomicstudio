@@ -571,7 +571,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
 
   const getPreviewUrl = () => {
     const isDev = import.meta.env.DEV;
-    const isStaging = import.meta.env.MODE === 'staging' || process.env.NODE_ENV === 'staging';
+    const isStaging = import.meta.env.NODE_ENV === 'staging' || process.env.NODE_ENV === 'staging';
     
     const baseUrl = isDev 
       ? `http://${comic.slug}.localhost:5173`
