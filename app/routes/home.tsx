@@ -317,7 +317,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <div className="fixed bottom-4 left-4 text-xs text-gray-500 dark:text-gray-400">
           Powered by{" "}
           <a
-            href={import.meta.env.DEV ? "http://localhost:5173" : "https://webcomic.studio"}
+            href={import.meta.env.DEV ? "http://localhost:5173" : (import.meta.env.MODE === 'staging' || process.env.NODE_ENV === 'staging') ? "https://wcsstaging.com" : "https://webcomic.studio"}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-gray-700 dark:hover:text-gray-300 underline transition"

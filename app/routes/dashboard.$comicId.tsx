@@ -571,9 +571,12 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
 
   const getPreviewUrl = () => {
     const isDev = import.meta.env.DEV;
+    const isStaging = import.meta.env.MODE === 'staging' || process.env.NODE_ENV === 'staging';
     
     const baseUrl = isDev 
       ? `http://${comic.slug}.localhost:5173`
+      : isStaging
+      ? `https://${comic.slug}.wcsstaging.com`
       : `https://${comic.slug}.webcomic.studio`;
     
     const params = new URLSearchParams({
@@ -785,7 +788,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                       pattern="[a-z0-9-]+"
                     />
                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                      .{import.meta.env.DEV ? 'localhost:5173' : 'webcomic.studio'}
+                      .{import.meta.env.DEV ? 'localhost:5173' : (import.meta.env.MODE === 'staging' || process.env.NODE_ENV === 'staging') ? 'wcsstaging.com' : 'webcomic.studio'}
                     </span>
                   </div>
                   {actionData?.error === "subdomain" && (
@@ -797,8 +800,11 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
               ) : (
                 (() => {
                   const isDev = import.meta.env.DEV;
+                  const isStaging = import.meta.env.MODE === 'staging' || process.env.NODE_ENV === 'staging';
                   const domain = isDev
                     ? `${comic.slug}.localhost:5173`
+                    : isStaging
+                    ? `${comic.slug}.wcsstaging.com`
                     : `${comic.slug}.webcomic.studio`;
                   const href = `${isDev ? "http" : "https"}://${domain}`;
                   return (
