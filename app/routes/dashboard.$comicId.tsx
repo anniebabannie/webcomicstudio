@@ -114,6 +114,8 @@ export async function action(args: Route.ActionArgs) {
   const intent = String(formData.get("intent") || "");
   
   if (intent === "updateComic") {
+    console.log('[ACTION] updateComic intent received');
+    
     const slug = formData.get("slug") as string | null;
     const domain = formData.get("domain") as string | null;
     const taglineRaw = formData.get("tagline") as string | null;
@@ -121,17 +123,72 @@ export async function action(args: Route.ActionArgs) {
     const description = formData.get("description") as string | null;
     const doubleSpread = formData.get("doubleSpread") === "on";
     
+    console.log('[ACTION] Domain from form:', domain);
+    
     // Handle file uploads
     const thumbnailFile = formData.get("thumbnail") as File | null;
     const logoFile = formData.get("logo") as File | null;
     const faviconFile = formData.get("favicon") as File | null;
     
+    // Get current comic to check for domain changes
+    const currentComic = await prisma.comic.findUnique({ where: { id: comicId } });
+    console.log('[ACTION] Current comic domain:', currentComic?.domain);
+    
     const updates: any = {
-      domain: domain || null,
       tagline: tagline || null,
       description: description || null,
       doubleSpread,
     };
+    
+    // Handle domain changes with certificate management
+    const trimmedDomain = domain?.trim().toLowerCase() || null;
+    console.log('[ACTION] Trimmed domain:', trimmedDomain);
+    
+    if (trimmedDomain !== currentComic?.domain) {
+      console.log('[ACTION] Domain is changing');
+      
+      // Validate format if domain is being set
+      if (trimmedDomain) {
+        if (trimmedDomain.includes('://') || trimmedDomain.includes('/')) {
+          console.log('[ACTION] Invalid domain format');
+          return data({ error: "domain", message: "Invalid domain format. Use example.com without http:// or https://" }, { status: 400 });
+        }
+        
+        // Check if already in use
+        const existing = await prisma.comic.findUnique({ where: { domain: trimmedDomain } });
+        if (existing && existing.id !== comicId) {
+          console.log('[ACTION] Domain already in use by another comic');
+          return data({ error: "domain", message: "Domain already in use by another comic" }, { status: 400 });
+        }
+      }
+      
+      const { addFlyCertificate, removeFlyCertificate } = await import("../utils/flyctl.server");
+      
+      // Remove old certificate if domain exists and is changing
+      if (currentComic?.domain) {
+        console.log('[ACTION] Removing old certificate for:', currentComic.domain);
+        await removeFlyCertificate(currentComic.domain);
+      }
+      
+      // Add new certificate if new domain is set
+      if (trimmedDomain) {
+        console.log('[ACTION] Adding new certificate for:', trimmedDomain);
+        const certResult = await addFlyCertificate(trimmedDomain);
+        console.log('[ACTION] Certificate result:', certResult);
+        
+        if (!certResult.success) {
+          console.log('[ACTION] Certificate failed');
+          return data({ 
+            error: "domain", 
+            message: `Failed to add SSL certificate: ${certResult.error}` 
+          }, { status: 500 });
+        }
+      }
+      
+      updates.domain = trimmedDomain;
+    } else {
+      console.log('[ACTION] Domain unchanged, not updating certificate');
+    }
     
     // Update chapter order if provided
     const chapterIds: string[] = [];
@@ -362,28 +419,43 @@ export async function action(args: Route.ActionArgs) {
   }
   
   if (intent === "addDomain") {
+    console.log('[ACTION] addDomain intent received');
+    
     const domain = formData.get("domain") as string | null;
+    console.log('[ACTION] Domain from form:', domain);
+    
     if (!domain) {
+      console.log('[ACTION] No domain provided, returning error');
       return data({ error: "domain", message: "Domain required" }, { status: 400 });
     }
     
     // Basic domain validation
     const trimmedDomain = domain.trim().toLowerCase();
+    console.log('[ACTION] Trimmed domain:', trimmedDomain);
+    
     if (!trimmedDomain || trimmedDomain.includes('://') || trimmedDomain.includes('/')) {
+      console.log('[ACTION] Invalid domain format, returning error');
       return data({ error: "domain", message: "Invalid domain format. Use example.com without http:// or https://" }, { status: 400 });
     }
     
     // Check if domain already in use by another comic
+    console.log('[ACTION] Checking if domain already exists...');
     const existing = await prisma.comic.findUnique({ where: { domain: trimmedDomain } });
     if (existing && existing.id !== comicId) {
+      console.log('[ACTION] Domain already in use by comic:', existing.id);
       return data({ error: "domain", message: "Domain already in use by another comic" }, { status: 400 });
     }
+    console.log('[ACTION] Domain is available');
     
     // Add certificate to Fly.io (skipped in development)
+    console.log('[ACTION] Importing flyctl.server...');
     const { addFlyCertificate } = await import("../utils/flyctl.server");
+    console.log('[ACTION] Calling addFlyCertificate...');
     const certResult = await addFlyCertificate(trimmedDomain);
+    console.log('[ACTION] Certificate result:', certResult);
     
     if (!certResult.success) {
+      console.log('[ACTION] Certificate failed, returning error');
       return data({ 
         error: "domain", 
         message: `Failed to add SSL certificate: ${certResult.error}` 
@@ -391,10 +463,12 @@ export async function action(args: Route.ActionArgs) {
     }
     
     // Save domain to database
+    console.log('[ACTION] Saving domain to database...');
     await prisma.comic.update({ 
       where: { id: comicId }, 
       data: { domain: trimmedDomain } 
     });
+    console.log('[ACTION] Domain saved successfully');
     
     return redirect(`/dashboard/${comicId}`);
   }
