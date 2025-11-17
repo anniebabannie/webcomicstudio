@@ -2,9 +2,9 @@ import type { Route } from "./+types/dashboard.$comicId.update";
 import { useEffect, useRef, useState } from "react";
 import { getAuth } from "@clerk/react-router/server";
 import { useAuth, PricingTable } from "@clerk/react-router";
-import { redirect, Form, Link } from "react-router";
+import { redirect, Form, Link, useActionData } from "react-router";
 import { prisma } from "../utils/db.server";
-import { uuidv4 } from "../utils/uuid"; // pure client-safe
+// import { uuidv4 } from "../utils/uuid"; // not used in debug mode
 
 export async function loader(args: Route.LoaderArgs) {
   const { userId } = await getAuth(args);
@@ -24,6 +24,7 @@ export async function loader(args: Route.LoaderArgs) {
 }
 
 export default function UpdateComic({ loaderData }: Route.ComponentProps) {
+  const actionData = useActionData<typeof action>();
   const { comicId, chapters, pageCount } = loaderData as {
     comicId: string;
     chapters: { id: string; number: number; title: string }[];
@@ -77,6 +78,15 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
         </Link>
       </div>
       <h1 className="text-2xl font-bold tracking-tight mb-6">Add Pages</h1>
+
+      {actionData?.blocked && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700 p-4">
+          <h2 className="font-semibold text-red-900 dark:text-red-200 mb-1">Upload blocked</h2>
+          <p className="text-sm text-red-800 dark:text-red-300">
+            It looks like some of your pages include adult content. Unfortunately, this is prohibited material on WebComic Studio.
+          </p>
+        </div>
+      )}
 
       <Form method="post" encType="multipart/form-data" className="space-y-8" onSubmit={e => {
         const input = (e.currentTarget.elements.namedItem("pages") as HTMLInputElement);
@@ -190,6 +200,21 @@ export default function UpdateComic({ loaderData }: Route.ComponentProps) {
           </a>
         </div>
       </Form>
+
+      {/* Vision API Debug Output */}
+      {actionData?.visionResults && (
+        <div className="mt-8 space-y-4">
+          <h2 className="text-xl font-bold">Vision API Results (Debug)</h2>
+          {actionData.visionResults.map((result: any, idx: number) => (
+            <div key={idx} className="rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
+              <h3 className="font-semibold mb-2">{result.filename}</h3>
+              <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
+                {JSON.stringify(result.data, null, 2)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
@@ -211,34 +236,59 @@ export async function action(args: Route.ActionArgs) {
     const files = formData.getAll("pages") as File[];
     if (files.length === 0) return new Response("No files uploaded", { status: 400 });
 
-  // Sort files by filename using natural (numeric-aware) order so 2 < 10
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  const sortedFiles = files.slice().sort((a, b) => collator.compare(a.name, b.name));
+    // Sort files by filename using natural (numeric-aware) order so 2 < 10
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    const sortedFiles = files.slice().sort((a, b) => collator.compare(a.name, b.name));
 
-    // Check for new chapter title or existing chapter selection
+    // 1) Scan ALL images with Vision first
+    const vision = await import("@google-cloud/vision");
+    const client = new vision.ImageAnnotatorClient();
+    type VisionItem = { filename: string; data: any; allowed: boolean };
+    const visionResults: VisionItem[] = [];
+
+    const isAllowed = (safe?: any | null) => {
+      const level = String(safe?.adult ?? "UNLIKELY").toUpperCase();
+      // Block only when adult is VERY_LIKELY
+      return level !== "VERY_LIKELY";
+    };
+
+    for (const file of sortedFiles) {
+      const original = Buffer.from(await file.arrayBuffer());
+      try {
+        const [result] = await client.annotateImage({
+          image: { content: original },
+          features: [{ type: 'SAFE_SEARCH_DETECTION' }]
+        });
+        const safe = result.safeSearchAnnotation;
+        const allowed = isAllowed(safe);
+        visionResults.push({ filename: file.name, data: { safeSearch: safe }, allowed });
+      } catch (err) {
+        console.error("Vision API error for", file.name, err);
+        visionResults.push({ filename: file.name, data: { error: String(err) }, allowed: false });
+      }
+    }
+
+    const anyBlocked = visionResults.some(v => !v.allowed);
+    if (anyBlocked) {
+      // Abort and show results; nothing uploaded
+      return { visionResults, blocked: true };
+    }
+
+    // 2) If all pass, proceed to resize and upload to S3, then create pages
+    // Gather chapter selection
     const newChapterTitle = String(formData.get("newChapterTitle") || "").trim();
     const selectedChapterId = String(formData.get("chapterId") || "").trim();
-    
     let chapterId: string | null = null;
-    
-    // Create new chapter if title provided
     if (newChapterTitle) {
       const count = await prisma.chapter.count({ where: { comicId } });
       const number = count + 1;
-      const newChapter = await prisma.chapter.create({
-        data: { comicId, title: newChapterTitle, number },
-      });
+      const newChapter = await prisma.chapter.create({ data: { comicId, title: newChapterTitle, number } });
       chapterId = newChapter.id;
     } else if (selectedChapterId) {
-      // Validate selected chapter belongs to this comic
-      const exists = await prisma.chapter.findFirst({
-        where: { id: selectedChapterId, comicId },
-        select: { id: true },
-      });
+      const exists = await prisma.chapter.findFirst({ where: { id: selectedChapterId, comicId }, select: { id: true } });
       chapterId = exists ? exists.id : null;
     }
 
-    // Get next page number for this context (chapter or comic)
     const maxPage = await prisma.page.findFirst({
       where: { comicId, chapterId: chapterId ?? null },
       orderBy: { number: "desc" },
@@ -246,36 +296,23 @@ export async function action(args: Route.ActionArgs) {
     });
     let nextPageNumber = (maxPage?.number ?? 0) + 1;
 
-    // Upload files to S3 and create page records
-  // Dynamic import server-only modules to avoid client bundle inclusion
-  const { uploadBufferToS3 } = await import("../utils/s3.server");
-  const { convertToWebP, generateThumbnail } = await import("../utils/image.server");
+    const { uploadBufferToS3 } = await import("../utils/s3.server");
+    const { convertToWebP, generateThumbnail } = await import("../utils/image.server");
+    const { uuidv4 } = await import("../utils/uuid");
 
-  for (let i = 0; i < sortedFiles.length; i++) {
+    for (let i = 0; i < sortedFiles.length; i++) {
       const file = sortedFiles[i];
       const pageNumber = nextPageNumber + i;
-      // Convert to WebP in-memory
       const original = Buffer.from(await file.arrayBuffer());
-      const webp = await convertToWebP(original, 75, 1500); // quality 75, max 1500px width
+      const webp = await convertToWebP(original, 75, 1500);
       const thumbnail = await generateThumbnail(original, 400, 75);
-      
       const ext = 'webp';
       const uuid = uuidv4();
       const s3Key = `${userId}/${comicId}/${pageNumber}-${uuid}.${ext}`;
       const thumbnailKey = `${userId}/${comicId}/${pageNumber}-${uuid}-thumbnail.${ext}`;
-      
-      // Upload both full-size and thumbnail to S3
       const imageUrl = await uploadBufferToS3(webp, s3Key, 'image/webp');
       await uploadBufferToS3(thumbnail, thumbnailKey, 'image/webp');
-      
-      await prisma.page.create({
-        data: {
-          comicId,
-          chapterId,
-          imageUrl,
-          number: pageNumber,
-        },
-      });
+      await prisma.page.create({ data: { comicId, chapterId, imageUrl, number: pageNumber } });
     }
 
     return redirect(`/dashboard/${comicId}`);
