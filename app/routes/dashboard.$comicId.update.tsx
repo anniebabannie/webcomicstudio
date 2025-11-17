@@ -298,7 +298,24 @@ export async function action(args: Route.ActionArgs) {
 
   // 1) Scan ALL images with Vision first (use downscaled preview for speed)
   const vision = await import("@google-cloud/vision");
-  const client = new vision.ImageAnnotatorClient();
+  let client: InstanceType<typeof vision.ImageAnnotatorClient>;
+  const rawCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  if (rawCreds) {
+    let jsonStr = rawCreds.trim();
+    // Strip surrounding quotes if provided in .env (supports single or double quotes)
+    if ((jsonStr.startsWith('"') && jsonStr.endsWith('"')) || (jsonStr.startsWith("'") && jsonStr.endsWith("'"))) {
+      jsonStr = jsonStr.slice(1, -1);
+    }
+    try {
+      const credentials = JSON.parse(jsonStr);
+      client = new vision.ImageAnnotatorClient({ credentials, projectId: credentials.project_id });
+    } catch (err) {
+      console.error("Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON, falling back to ADC:", err);
+      client = new vision.ImageAnnotatorClient();
+    }
+  } else {
+    client = new vision.ImageAnnotatorClient();
+  }
   const imageUtils = await import("../utils/image.server");
   const { generateThumbnail, convertToWebP } = imageUtils;
     type VisionItem = { filename: string; data: any; allowed: boolean };

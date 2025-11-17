@@ -241,9 +241,16 @@ export async function action(args: Route.ActionArgs) {
 
   if (intent === "updatePublishedDate") {
     const dateStr = formData.get("publishedDate");
-    if (typeof dateStr !== "string" || !dateStr) {
+    if (typeof dateStr !== "string") {
       return redirect(`/dashboard/${comicId}/${chapterId}`);
     }
+    
+    // If empty, unpublish the chapter
+    if (!dateStr) {
+      await prisma.chapter.update({ where: { id: chapterId }, data: { publishedDate: null } });
+      return redirect(`/dashboard/${comicId}/${chapterId}`);
+    }
+    
     // Expect YYYY-MM-DD from date input
     const parsed = new Date(dateStr + "T00:00:00Z");
     if (isNaN(parsed.getTime())) {
@@ -569,7 +576,18 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
       <div className="mb-6">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{chapter.title}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-tight">{chapter.title}</h1>
+              {!chapter.publishedDate ? (
+                <span className="text-sm text-gray-500 dark:text-gray-400">Unpublished</span>
+              ) : new Date(chapter.publishedDate) > new Date() ? (
+                <span className="text-sm text-gray-500 dark:text-gray-400">Scheduled</span>
+              ) : (
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  Published on {new Date(chapter.publishedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                </span>
+              )}
+            </div>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
               {chapter.pages.length} page{chapter.pages.length !== 1 ? "s" : ""}
             </p>
@@ -589,6 +607,20 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
               className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow transition"
             >
               Save
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                const input = document.getElementById('publishedDate') as HTMLInputElement;
+                if (input) {
+                  input.value = '';
+                  const form = e.currentTarget.closest('form');
+                  if (form) form.requestSubmit();
+                }
+              }}
+              className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 shadow transition"
+            >
+              Unpublish
             </button>
           </form>
         </div>
