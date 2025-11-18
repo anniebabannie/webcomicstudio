@@ -1,5 +1,6 @@
 .DS_Store
 .env
+.envrc
 /node_modules/
 
 # React Router
@@ -10,3 +11,6 @@
 
 web-comic-studio-*.json
 notes.md
+
+# Authentication tokens
+.npmrc

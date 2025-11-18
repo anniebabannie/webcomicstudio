@@ -4,6 +4,8 @@ import { useEffect } from "react"; // still used for other local effects if need
 import { usePageArrowNavigation } from "../hooks/usePageArrowNavigation";
 import { extractSubdomain } from "../utils/subdomain.server";
 import { prisma } from "../utils/db.server";
+import { ComicHeader } from "../components/ComicHeader";
+import { ComicFooter } from "../components/ComicFooter";
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.page) {
@@ -67,7 +69,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     logo: string | null;
     favicon: string | null;
     doubleSpread: boolean;
-    chapters: { id: string; number: number; title: string; publishedDate: Date | null }[];
+    chapters: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number }[] }[];
   };
   if (isCustomDomain) {
     const hostname = host!.split(':')[0];
@@ -83,7 +85,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         doubleSpread: true,
         chapters: {
           orderBy: { number: "asc" },
-          select: { id: true, number: true, title: true, publishedDate: true },
+          select: { 
+            id: true, 
+            number: true, 
+            title: true, 
+            publishedDate: true,
+            pages: {
+              select: { id: true, number: true },
+              orderBy: { number: 'asc' },
+            },
+          },
         },
       },
     });
@@ -102,7 +113,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         doubleSpread: true,
         chapters: {
           orderBy: { number: "asc" },
-          select: { id: true, number: true, title: true, publishedDate: true },
+          select: { 
+            id: true, 
+            number: true, 
+            title: true, 
+            publishedDate: true,
+            pages: {
+              select: { id: true, number: true },
+              orderBy: { number: 'asc' },
+            },
+          },
         },
       },
     });
@@ -268,12 +288,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const isStaging = process.env.NODE_ENV === 'staging';
   const baseDomain = isDev ? 'localhost:5173' : isStaging ? 'wcsstaging.com' : 'webcomic.studio';
 
-  return { comic, chapter, page, pages, spreadStart, pageNumbers, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage, host: host || '', protocol: url.protocol.replace(':', ''), baseDomain };
+  // Load published site pages for top nav
+  const sitePages = await prisma.sitePage.findMany({
+    where: { comicId: comic.id, publishedDate: { lte: new Date() } },
+    select: { linkText: true, slug: true },
+    orderBy: { linkText: 'asc' },
+  });
+
+  return { comic, chapter, page, pages, spreadStart, pageNumbers, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage, sitePages, host: host || '', protocol: url.protocol.replace(':', ''), baseDomain };
 }
 
 export default function ComicPage({ loaderData }: Route.ComponentProps) {
   const data = loaderData as {
-  comic: { id: string; title: string; tagline?: string | null; description?: string | null; logo?: string | null; doubleSpread?: boolean; chapters: { id: string; number: number; title: string; publishedDate: Date | null }[] };
+  comic: { id: string; title: string; tagline?: string | null; description?: string | null; logo?: string | null; doubleSpread?: boolean; chapters: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number }[] }[] };
     chapter: { id: string; number: number; title: string };
     page: { id: string; number: number; imageUrl: string };
     pages?: { id: string; number: number; imageUrl: string }[];
@@ -283,6 +310,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
     nextPage: { number: number } | null;
     nextChapterFirstPage: { chapterId: string; pageNumber: number } | null;
     prevChapterLastPage: { chapterId: string; pageNumber: number } | null;
+    sitePages?: { linkText: string; slug: string }[];
     baseDomain: string;
   } | undefined;
   
@@ -290,7 +318,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
     throw new Response("Not Found", { status: 404 });
   }
   
-  const { comic, chapter, page, pages, spreadStart, pageNumbers, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage, baseDomain } = data;
+  const { comic, chapter, page, pages, spreadStart, pageNumbers, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage, sitePages = [], baseDomain } = data;
   const isDouble = !!comic.doubleSpread;
   const currentSpreadStart = isDouble && spreadStart ? spreadStart : page.number;
 
@@ -317,67 +345,14 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-950 border-b border-gray-800 px-4 py-3">
-        <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
-          <Link to={`/${previewParams ? `?${previewParams}` : ''}`} className="text-white hover:text-gray-300 transition flex items-center gap-3">
-            {comic.logo ? (
-              <img src={comic.logo} alt={comic.title} className="max-h-[28px]" />
-            ) : (
-              <h1 className="text-lg font-semibold">{comic.title}</h1>
-            )}
-            {comic.tagline && (
-              <p className="text-sm text-gray-400 hidden sm:block">
-                {comic.tagline.slice(0, 80)}{comic.tagline.length > 80 ? '...' : ''}
-              </p>
-            )}
-          </Link>
-          <div className="flex items-center gap-3 text-sm">
-            <select
-              value={chapter.id}
-              onChange={(e) => {
-                console.log(e.target.value);
-                const selectedChapter = comic.chapters.find(ch => ch.id === e.target.value);
-                if (selectedChapter) {
-                  window.location.href = `/${selectedChapter.id}/1${previewParams ? `?${previewParams}` : ''}`;
-                }
-              }}
-              className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {comic.chapters
-                .filter(ch => ch.publishedDate && new Date(ch.publishedDate) <= new Date())
-                .map((ch) => (
-                  <option key={ch.id} value={ch.id}>
-                    {ch.title}
-                  </option>
-                ))}
-            </select>
-            <span className="text-gray-400">•</span>
-            <select
-              value={isDouble ? currentSpreadStart : page.number}
-              onChange={(e) => {
-                const num = parseInt(e.target.value, 10);
-                if (!isNaN(num)) {
-                  window.location.href = `/${chapter.id}/${num}${previewParams ? `?${previewParams}` : ''}`;
-                }
-              }}
-              className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {isDouble
-                ? pageNumbers.filter(n => (n - 1) % 2 === 0).map((n) => (
-                    <option key={n} value={n}>
-                      {n}–{n + 1 <= (pageNumbers[pageNumbers.length - 1] ?? n) ? n + 1 : ""}
-                    </option>
-                  ))
-                : pageNumbers.map((n) => (
-                    <option key={n} value={n}>
-                      Page {n}
-                    </option>
-                  ))}
-            </select>
-          </div>
-        </div>
-      </header>
+      <ComicHeader
+        comic={comic}
+        chapters={comic.chapters}
+        sitePages={sitePages}
+        currentChapterId={chapter.id}
+        currentPageNumber={isDouble ? currentSpreadStart : page.number}
+        previewParams={previewParams}
+      />
 
       {/* Comic image with side navigation */}
       <main className="flex-1 flex items-center justify-center p-4">
@@ -478,18 +453,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
         })()}
       </main>
 
-      {/* Powered by footer */}
-      <div className="fixed bottom-4 left-4 text-xs text-gray-500 dark:text-gray-400">
-        Powered by{" "}
-        <a
-          href={baseDomain.includes('localhost') ? `http://${baseDomain}` : `https://${baseDomain}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-gray-700 dark:hover:text-gray-300 underline transition"
-        >
-          WebComic Studio
-        </a>
-      </div>
+      <ComicFooter baseDomain={baseDomain} />
     </div>
   );
 }

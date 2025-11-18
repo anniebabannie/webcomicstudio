@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePageArrowNavigation } from "../hooks/usePageArrowNavigation";
 import { extractSubdomain } from "../utils/subdomain.server";
 import { prisma } from "../utils/db.server";
+import { ComicFooter } from "../components/ComicFooter";
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.page) {
@@ -317,18 +318,7 @@ export default function StandalonePage({ loaderData }: Route.ComponentProps) {
         </div>
       </nav>
 
-      {/* Powered by footer */}
-      <div className="fixed bottom-4 left-4 text-xs text-gray-500 dark:text-gray-400">
-        Powered by{" "}
-        <a
-          href={baseDomain.includes('localhost') ? `http://${baseDomain}` : `https://${baseDomain}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-gray-700 dark:hover:text-gray-300 underline transition"
-        >
-          WebComic Studio
-        </a>
-      </div>
+      <ComicFooter baseDomain={baseDomain} />
     </div>
   );
 }

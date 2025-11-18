@@ -39,6 +39,7 @@ model Comic {
   
   chapters    Chapter[]
   pages       Page[]    // Pages without chapters go here directly
+  sitePages   SitePage[] // Static site pages like About, FAQ, etc.
   
   @@index([userId])
 }
@@ -81,4 +82,21 @@ model Page {
   @@unique([comicId, chapterId, number]) // Unique within chapter OR comic if no chapter
   @@index([comicId])
   @@index([chapterId])
+}
+
+// Static site pages associated with a Comic (e.g., About, FAQ)
+model SitePage {
+  id        String   @id @default(cuid())
+  linkText  String   @default("About")
+  html      String?  // Stored HTML content from the editor
+  slug      String   // URL segment, unique per comic (e.g., "about")
+  publishedDate DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comicId   String
+  comic     Comic    @relation(fields: [comicId], references: [id], onDelete: Cascade)
+
+  @@unique([comicId, slug])
+  @@index([comicId])
 }

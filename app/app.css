@@ -1,7 +1,9 @@
 @import "tailwindcss";
+@import './styles/_variables.scss';
+@import './styles/_keyframe-animations.scss';
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
+  --font-sans: "Albert Sans", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 

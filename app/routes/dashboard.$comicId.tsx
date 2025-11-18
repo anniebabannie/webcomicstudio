@@ -47,6 +47,9 @@ export async function loader(args: Route.LoaderArgs) {
       doubleSpread: true,
       createdAt: true,
       updatedAt: true,
+      sitePages: {
+        orderBy: { createdAt: "asc" },
+      },
       chapters: {
         select: {
           id: true,
@@ -552,6 +555,30 @@ export async function action(args: Route.ActionArgs) {
     return { success: true, action: 'createChapter' };
   }
   
+  if (intent === "createSitePage") {
+    const slug = formData.get("slug");
+    if (!slug || typeof slug !== "string") {
+      return new Response("Slug required", { status: 400 });
+    }
+    const trimmed = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    if (!trimmed) {
+      return data({ error: "sitepage-slug", message: "Invalid slug. Use lowercase letters, numbers, and dashes only." }, { status: 400 });
+    }
+    // Ensure slug is unique per comic
+    const existing = await prisma.sitePage.findFirst({ where: { comicId, slug: trimmed } });
+    if (existing) {
+      return data({ error: "sitepage-slug", message: "Slug already exists for this comic" }, { status: 400 });
+    }
+    const created = await prisma.sitePage.create({
+      data: {
+        comicId,
+        slug: trimmed,
+        // title and linkText default in schema
+      }
+    });
+    return { success: true, action: 'createSitePage', id: created.id };
+  }
+  
   return new Response("Unknown intent", { status: 400 });
 }
 
@@ -570,9 +597,10 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
       favicon?: string | null;
       createdAt: Date;
       updatedAt: Date;
-  chapters: { id: string; number: number; title: string; publishedDate: Date | null; _count: { pages: number } }[];
-      _count: { pages: number };
-    };
+      sitePages: { id: string; linkText: string | null; slug: string; publishedDate?: Date | null }[];
+        chapters: { id: string; number: number; title: string; publishedDate: Date | null; _count: { pages: number } }[];
+        _count: { pages: number };
+      };
     recentPageImage: string | null;
     baseDomain: string;
     isDev: boolean;
@@ -586,6 +614,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
   const [description, setDescription] = useState(comic.description || '');
   const [doubleSpread, setDoubleSpread] = useState(comic.doubleSpread || false);
   const [showNewChapter, setShowNewChapter] = useState(false);
+  const [showNewSitePage, setShowNewSitePage] = useState(false);
   const [reorderChapters, setReorderChapters] = useState(false);
   const [chapterIds, setChapterIds] = useState<string[]>(() => comic.chapters.map(c => c.id));
   useEffect(() => {
@@ -631,6 +660,13 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
   useEffect(() => {
     if (actionData?.success && actionData?.action === 'createChapter') {
       setShowNewChapter(false);
+    }
+  }, [actionData]);
+
+  // Hide new site page form after successful creation
+  useEffect(() => {
+    if (actionData?.success && actionData?.action === 'createSitePage') {
+      setShowNewSitePage(false);
     }
   }, [actionData]);
 
@@ -793,7 +829,7 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                   return (
                     <li key={ch.id} className="flex items-center gap-2">
                       <Link 
-                        to={`/dashboard/${comic.id}/${ch.id}`}
+                        to={`/dashboard/${comic.id}/chapter/${ch.id}`}
                         className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                       >
                         {ch.title} ({ch._count.pages} page{ch._count.pages !== 1 ? 's' : ''})
@@ -853,6 +889,86 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                   <button
                     type="button"
                     onClick={() => setShowNewChapter(false)}
+                    className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </Form>
+            )}
+          </div>
+
+          {/* Site Pages box */}
+          <div className="mb-6 p-6 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold">Site Pages</h2>
+            </div>
+            {comic.sitePages.length === 0 ? (
+              <p className="mt-1 text-gray-500 text-sm">No site pages</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-sm">
+                {comic.sitePages.map((sp) => {
+                  const isFuture = sp.publishedDate && new Date(sp.publishedDate) > new Date();
+                  const dateStr = isFuture && sp.publishedDate ? new Date(sp.publishedDate).toLocaleDateString() : null;
+                  return (
+                    <li key={sp.id} className="flex items-center gap-2">
+                      <Link
+                        to={`/dashboard/${comic.id}/sitepage/${sp.id}`}
+                        className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      >
+                        {sp.linkText || sp.slug}
+                      </Link>
+                      {!sp.publishedDate ? (
+                        <span className="text-xs text-gray-400">Unpublished</span>
+                      ) : isFuture ? (
+                        <span className="text-xs text-gray-400">Scheduled for {dateStr}</span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {/* New Site Page toggle */}
+            {!showNewSitePage ? (
+              <button
+                type="button"
+                onClick={() => setShowNewSitePage(true)}
+                className="mt-4 inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+              >
+                <span className="text-base leading-none">＋</span>
+                New Site Page
+              </button>
+            ) : (
+              <Form method="post" className="mt-4 space-y-2">
+                <input type="hidden" name="intent" value="createSitePage" />
+                <div>
+                  <input
+                    type="text"
+                    name="slug"
+                    placeholder="about"
+                    pattern="[a-z0-9-]+"
+                    onInput={(e) => {
+                      e.currentTarget.value = e.currentTarget.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                    }}
+                    className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm"
+                    autoFocus
+                    required
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Only lowercase letters, numbers, and hyphens allowed</p>
+                  {actionData?.error === 'sitepage-slug' && (
+                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{actionData.message}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center rounded-md bg-indigo-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-indigo-500 transition"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewSitePage(false)}
                     className="inline-flex items-center rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                   >
                     Cancel

@@ -1,5 +1,5 @@
-import type { Route } from "./+types/dashboard.$comicId.$chapterId";
-import { redirect, Link, useFetcher, useLocation, useNavigate } from "react-router";
+import type { Route } from "./+types/dashboard.$comicId.chapter.$chapterId";
+import { redirect, Link, Form, useFetcher, useLocation, useNavigate } from "react-router";
 import { useState, useCallback, useEffect, useRef, useLayoutEffect } from "react";
 import {
   DndContext,
@@ -24,8 +24,9 @@ import { getAuth } from "@clerk/react-router/server";
 import { getThumbnailUrl } from "../utils/thumbnail";
 
 export function meta({ data }: Route.MetaArgs) {
+  const title = data?.chapter?.title || "Chapter Editor";
   return [
-    { title: data?.chapter ? `${data.chapter.title} • WebComic Studio` : "Chapter • WebComic Studio" },
+    { title: `${title} • WebComic Studio` },
   ];
 }
 
@@ -49,7 +50,7 @@ export async function loader(args: Route.LoaderArgs) {
   });
   if (!comic) return redirect("/dashboard");
 
-  // Get chapter with pages
+  // Load chapter
   const chapter = await prisma.chapter.findFirst({
     where: { id: chapterId, comicId },
     select: {
@@ -68,7 +69,9 @@ export async function loader(args: Route.LoaderArgs) {
     },
   });
 
-  if (!chapter) throw new Response("Chapter Not Found", { status: 404 });
+  if (!chapter) {
+    throw new Response("Not Found", { status: 404 });
+  }
 
   return { comic, chapter };
 }
@@ -134,7 +137,7 @@ export async function action(args: Route.ActionArgs) {
       return new Response("Invalid payload", { status: 400 });
     }
     if (!Array.isArray(selected) || selected.length === 0) {
-      return redirect(`/dashboard/${comicId}/${chapterId}`);
+      return redirect(`/dashboard/${comicId}/chapter/${chapterId}`);
     }
 
     // Verify comic ownership
@@ -189,7 +192,7 @@ export async function action(args: Route.ActionArgs) {
     }
 
     // Redirect back to refresh list and show count
-    return redirect(`/dashboard/${comicId}/${chapterId}?deleted=${result.count || 0}`);
+    return redirect(`/dashboard/${comicId}/chapter/${chapterId}?deleted=${result.count || 0}`);
   }
 
   if (intent === "deleteChapter") {
@@ -242,22 +245,22 @@ export async function action(args: Route.ActionArgs) {
   if (intent === "updatePublishedDate") {
     const dateStr = formData.get("publishedDate");
     if (typeof dateStr !== "string") {
-      return redirect(`/dashboard/${comicId}/${chapterId}`);
+      return redirect(`/dashboard/${comicId}/chapter/${chapterId}`);
     }
     
     // If empty, unpublish the chapter
     if (!dateStr) {
       await prisma.chapter.update({ where: { id: chapterId }, data: { publishedDate: null } });
-      return redirect(`/dashboard/${comicId}/${chapterId}`);
+      return redirect(`/dashboard/${comicId}/chapter/${chapterId}`);
     }
     
     // Expect YYYY-MM-DD from date input
     const parsed = new Date(dateStr + "T00:00:00Z");
     if (isNaN(parsed.getTime())) {
-      return redirect(`/dashboard/${comicId}/${chapterId}`);
+      return redirect(`/dashboard/${comicId}/chapter/${chapterId}`);
     }
     await prisma.chapter.update({ where: { id: chapterId }, data: { publishedDate: parsed } });
-    return redirect(`/dashboard/${comicId}/${chapterId}`);
+    return redirect(`/dashboard/${comicId}/chapter/${chapterId}`);
   }
 
   return new Response("Bad Request", { status: 400 });
@@ -318,11 +321,12 @@ function DragOverlayItem({ imageUrl, displayNumber }: { imageUrl: string; displa
 }
 
 export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
-  const data = loaderData as { comic: { id: string; title: string; chapters: { id: string; number: number; title: string }[] }; chapter: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number; imageUrl: string }[] } } | undefined;
-  
-  if (!data) {
-    throw new Response("Not Found", { status: 404 });
-  }
+  const data = loaderData as {
+    comic: { id: string; title: string; chapters: { id: string; number: number; title: string }[] };
+    chapter: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number; imageUrl: string }[] };
+  } | undefined;
+
+  if (!data) throw new Response("Not Found", { status: 404 });
 
   const { comic, chapter } = data;
   const publishedDateValue = chapter.publishedDate ? new Date(chapter.publishedDate) : null;

@@ -4,6 +4,8 @@ import { Link, redirect } from 'react-router';
 import { extractSubdomain } from '../utils/subdomain.server';
 import { prisma } from '../utils/db.server';
 import { NavBar } from '../components/NavBar';
+import { ComicHeader } from '../components/ComicHeader';
+import { ComicFooter } from '../components/ComicFooter';
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.comic) {
@@ -144,6 +146,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   if (comic) {
+    // Load published site pages for top nav
+    const sitePages = await prisma.sitePage.findMany({
+      where: {
+        comicId: comic.id,
+        publishedDate: { lte: new Date() },
+      },
+      select: { linkText: true, slug: true },
+      orderBy: { linkText: 'asc' },
+    });
     // Apply preview overrides if present
     if (isPreview) {
       const description = url.searchParams.get("description");
@@ -168,7 +179,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     const isStaging = process.env.NODE_ENV === 'staging';
     const baseDomain = isDev ? 'localhost:5173' : isStaging ? 'wcsstaging.com' : 'webcomic.studio';
     
-    return { type: 'comic' as const, comic, host: host || '', protocol: url.protocol.replace(':', ''), baseDomain };
+    return { type: 'comic' as const, comic, sitePages, host: host || '', protocol: url.protocol.replace(':', ''), baseDomain };
   }
 
   // Root domain - show marketing page
@@ -182,7 +193,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function Home({ loaderData }: Route.ComponentProps) {
   // If this is a comic subdomain, show public comic homepage
   if (loaderData.type === 'comic') {
-    const { comic } = loaderData;
+  const { comic, sitePages = [] } = loaderData as typeof loaderData & { sitePages?: { linkText: string; slug: string }[] };
     
     // Get preview params from URL
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -208,73 +219,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     
     return (
       <div className="min-h-screen bg-gray-900 flex flex-col">
-        {/* Header */}
-        <header className="bg-gray-950 border-b border-gray-800 px-4 py-3">
-          <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              {comic.logo ? (
-                <img src={comic.logo} alt={comic.title} className="max-h-[28px]" />
-              ) : (
-                <h1 className="text-lg font-semibold text-white">{comic.title}</h1>
-              )}
-                {comic.tagline && (
-                  <p className="text-sm text-gray-400 hidden sm:block">
-                    {comic.tagline.slice(0, 90)}{comic.tagline.length > 90 ? '...' : ''}
-                  </p>
-                )}
-            </div>
-            {publishedChapters.length > 0 && (
-              <div className="flex items-center gap-3 text-sm">
-                <select
-                  defaultValue={publishedChapters[0].id}
-                  onChange={(e) => {
-                    const selectedChapter = publishedChapters.find(ch => ch.id === e.target.value);
-                    if (selectedChapter && selectedChapter.pages.length > 0) {
-                      window.location.href = `/${selectedChapter.id}/1${previewParams ? `?${previewParams}` : ''}`;
-                    }
-                  }}
-                  className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  {publishedChapters.map((ch) => (
-                    <option key={ch.id} value={ch.id}>
-                      {ch.title}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-gray-400">•</span>
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    const chapterId = publishedChapters[0]?.id;
-                    const pageNum = parseInt(e.target.value, 10);
-                    if (chapterId && !isNaN(pageNum)) {
-                      window.location.href = `/${chapterId}/${pageNum}${previewParams ? `?${previewParams}` : ''}`;
-                    }
-                  }}
-                  className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">--</option>
-                  {comic.doubleSpread
-                    ? publishedChapters[0]?.pages
-                        .filter((p) => (p.number - 1) % 2 === 0)
-                        .map((p) => {
-                          const maxPage = publishedChapters[0].pages[publishedChapters[0].pages.length - 1]?.number ?? p.number;
-                          return (
-                            <option key={p.number} value={p.number}>
-                              {p.number}–{p.number + 1 <= maxPage ? p.number + 1 : ""}
-                            </option>
-                          );
-                        })
-                    : publishedChapters[0]?.pages.map((p) => (
-                        <option key={p.number} value={p.number}>
-                          Page {p.number}
-                        </option>
-                      ))}
-                </select>
-              </div>
-            )}
-          </div>
-        </header>
+        <ComicHeader
+          comic={comic}
+          chapters={comic.chapters}
+          sitePages={sitePages}
+          previewParams={previewParams}
+        />
 
         {/* Main content - centered cover */}
         <main className="flex-1 flex items-center justify-center p-4">
@@ -321,18 +271,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           )}
         </main>
 
-        {/* Powered by footer */}
-        <div className="fixed bottom-4 left-4 text-xs text-gray-500 dark:text-gray-400">
-          Powered by{" "}
-          <a
-            href={loaderData.baseDomain.includes('localhost') ? `http://${loaderData.baseDomain}` : `https://${loaderData.baseDomain}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-gray-700 dark:hover:text-gray-300 underline transition"
-          >
-            WebComic Studio
-          </a>
-        </div>
+        <ComicFooter baseDomain={loaderData.baseDomain} />
       </div>
     );
   }
