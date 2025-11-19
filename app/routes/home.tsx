@@ -313,7 +313,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           aria-hidden="true"
           className="absolute inset-0 pointer-events-none opacity-15"
           style={{
-            backgroundImage: "linear-gradient(to bottom right, rgba(168, 85, 247, 1), rgba(236, 72, 153, 1)), url('/ai-bg-1.png')",
+            backgroundImage: "linear-gradient(to bottom right, rgba(168, 85, 247, 1), rgba(236, 72, 153, 1)), url('/comic-collage.png')",
             backgroundSize: "cover",
             backgroundPosition: "center",
             backgroundBlendMode: "screen"
