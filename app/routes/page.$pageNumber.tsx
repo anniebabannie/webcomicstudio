@@ -56,19 +56,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   }
 
   // Look up comic by slug (subdomain) or domain (custom domain)
-  let comic = null as null | { id: string; title: string; description: string | null; logo: string | null; doubleSpread: boolean };
+  let comic = null as null | { id: string; title: string; description: string | null; logo: string | null; doubleSpread: boolean; theme?: string | null };
   if (isCustomDomain) {
     const hostname = host!.split(':')[0];
     comic = await prisma.comic.findUnique({
       where: { domain: hostname },
-      select: { id: true, title: true, description: true, logo: true, doubleSpread: true },
+      select: { id: true, title: true, description: true, logo: true, doubleSpread: true, theme: true },
     });
   } else {
     const subdomain = extractSubdomain(host);
     if (!subdomain) return redirect("/");
     comic = await prisma.comic.findUnique({
       where: { slug: subdomain },
-      select: { id: true, title: true, description: true, logo: true, doubleSpread: true },
+      select: { id: true, title: true, description: true, logo: true, doubleSpread: true, theme: true },
     });
   }
 
@@ -168,24 +168,51 @@ export default function StandalonePage({ loaderData }: Route.ComponentProps) {
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const previewParams = searchParams.toString();
 
+  // Apply theme and comic-theme class
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import('../themes');
+        const name = mod.resolveThemeName((comic as any).theme as string | undefined);
+        if (!cancelled) {
+          document.documentElement.setAttribute('data-theme', name);
+          document.body.classList.add('comic-theme');
+        }
+      } catch {
+        if (!cancelled) {
+          document.documentElement.setAttribute('data-theme', 'navy');
+          document.body.classList.add('comic-theme');
+        }
+      }
+    })();
+    return () => { 
+      cancelled = true;
+      document.body.classList.remove('comic-theme');
+    };
+  }, [(comic as any).theme]);
+
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+  <div className="min-h-screen text-[var(--text)] flex flex-col">
       {/* Header */}
-      <header className="bg-gray-950 border-b border-gray-800 px-4 py-3">
+  <header 
+    className="border-b border-[var(--border)] px-4 py-3"
+    style={{ background: 'var(--nav-bg)' }}
+  >
         <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
-          <Link to={`/${previewParams ? `?${previewParams}` : ''}`} className="text-white hover:text-gray-300 transition flex items-center gap-3">
+          <Link to={`/${previewParams ? `?${previewParams}` : ''}`} className="text-[var(--nav-text)] hover:text-[var(--link-hover)] transition flex items-center gap-3">
             {comic.logo ? (
               <img src={comic.logo} alt={comic.title} className="max-h-[28px]" />
             ) : (
               <h1 className="text-lg font-semibold">{comic.title}</h1>
             )}
             {comic.description && (
-              <p className="text-sm text-gray-400 hidden sm:block">
+              <p className="text-sm text-[var(--link)] hidden sm:block">
                 {comic.description.slice(0, 100)}{comic.description.length > 100 ? '...' : ''}
               </p>
             )}
           </Link>
-          <div className="text-sm text-gray-400">
+          <div className="text-sm text-[var(--link)]">
             Page {page.number}
           </div>
         </div>
@@ -279,25 +306,28 @@ export default function StandalonePage({ loaderData }: Route.ComponentProps) {
       </main>
 
       {/* Navigation */}
-      <nav className="bg-gray-950 border-t border-gray-800 px-4 py-4">
+  <nav 
+    className="border-t border-[var(--border)] px-4 py-4"
+    style={{ background: 'var(--nav-bg)' }}
+  >
         <div className="mx-auto max-w-7xl flex items-center justify-between">
           <div>
             {prevPage ? (
               <Link
                 to={`/page/${prevPage.number}${previewParams ? `?${previewParams}` : ''}`}
-                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-md transition"
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-[var(--button-text)] bg-[var(--border)] hover:bg-[var(--button-bg)] rounded-md transition"
               >
                 ← Previous
               </Link>
             ) : (
-              <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-600 bg-gray-900 rounded-md cursor-not-allowed">
+              <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-[var(--link)] bg-[var(--page-bg)] border border-[var(--border)] rounded-md cursor-not-allowed">
                 ← Previous
               </div>
             )}
           </div>
           <Link
             to={`/${previewParams ? `?${previewParams}` : ''}`}
-            className="text-sm text-gray-400 hover:text-white transition"
+            className="text-sm text-[var(--link)] hover:text-[var(--link-hover)] transition"
           >
             Back to Home
           </Link>
@@ -305,12 +335,12 @@ export default function StandalonePage({ loaderData }: Route.ComponentProps) {
             {nextPage ? (
               <Link
                 to={`/page/${nextPage.number}${previewParams ? `?${previewParams}` : ''}`}
-                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-md transition"
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-[var(--button-text)] bg-[var(--border)] hover:bg-[var(--button-bg)] rounded-md transition"
               >
                 Next →
               </Link>
             ) : (
-              <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-600 bg-gray-900 rounded-md cursor-not-allowed">
+              <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-[var(--link)] bg-[var(--page-bg)] border border-[var(--border)] rounded-md cursor-not-allowed">
                 Next →
               </div>
             )}
@@ -318,7 +348,11 @@ export default function StandalonePage({ loaderData }: Route.ComponentProps) {
         </div>
       </nav>
 
-      <ComicFooter baseDomain={baseDomain} />
+      <ComicFooter 
+        baseDomain={baseDomain} 
+        comicId={comic.id}
+        pageNumbers={pages?.map(p => p.number)}
+      />
     </div>
   );
 }

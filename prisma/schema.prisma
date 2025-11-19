@@ -30,6 +30,7 @@ model Comic {
   thumbnail   String?  // Cover image URL
   logo        String?  // Logo image URL
   favicon     String?  // Favicon image URL
+  theme       String   @default("default") // Theme key for public site styling
   doubleSpread Boolean @default(false) // Enable double-page spread view
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

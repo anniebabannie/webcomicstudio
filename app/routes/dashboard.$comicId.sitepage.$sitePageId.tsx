@@ -36,7 +36,7 @@ export async function loader(args: Route.LoaderArgs) {
   const isStaging = process.env.NODE_ENV === 'staging';
   const baseDomain = isDev ? 'localhost:5173' : isStaging ? 'wcsstaging.com' : 'webcomic.studio';
 
-  return { comic, sitePage, baseDomain, isDev };
+  return { comic, sitePage, baseDomain, isDev, userId };
 }
 
 export async function action(args: Route.ActionArgs) {
@@ -49,6 +49,24 @@ export async function action(args: Route.ActionArgs) {
 
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
+  
+  console.log("Intent received:", intent); // Debug log
+
+  if (intent === "deleteSitePage") {
+    // Verify ownership
+    const comic = await prisma.comic.findFirst({ where: { id: comicId, userId }, select: { id: true } });
+    if (!comic) return redirect("/dashboard");
+
+    // Verify site page exists and belongs to comic
+    const sitePage = await prisma.sitePage.findFirst({ where: { id: sitePageId, comicId } });
+    if (!sitePage) return redirect(`/dashboard/${comicId}`);
+
+    await prisma.sitePage.delete({
+      where: { id: sitePageId },
+    });
+
+    return redirect(`/dashboard/${comicId}`);
+  }
 
   if (intent === "updateSitePage") {
     // Verify ownership
@@ -107,11 +125,27 @@ export async function action(args: Route.ActionArgs) {
     return redirect(`/dashboard/${comicId}/sitepage/${sitePageId}`);
   }
 
+  if (intent === "deleteSitePage") {
+    // Verify ownership
+    const comic = await prisma.comic.findFirst({ where: { id: comicId, userId }, select: { id: true } });
+    if (!comic) return redirect("/dashboard");
+
+    // Verify site page exists and belongs to comic
+    const sitePage = await prisma.sitePage.findFirst({ where: { id: sitePageId, comicId } });
+    if (!sitePage) return redirect(`/dashboard/${comicId}`);
+
+    await prisma.sitePage.delete({
+      where: { id: sitePageId },
+    });
+
+    return redirect(`/dashboard/${comicId}`);
+  }
+
   return new Response("Bad Request", { status: 400 });
 }
 
 export default function SitePageEditor({ loaderData }: Route.ComponentProps) {
-  const { comic, sitePage, baseDomain, isDev } = loaderData;
+  const { comic, sitePage, baseDomain, isDev, userId } = loaderData;
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting" && navigation.formData?.get("intent") === "updateSitePage";
   
@@ -135,14 +169,19 @@ export default function SitePageEditor({ loaderData }: Route.ComponentProps) {
       <h1 className="text-2xl font-bold tracking-tight mb-6">Edit Site Page</h1>
       
       <Form method="post" className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <input type="hidden" name="intent" value="updateSitePage" />
         
         {/* Left: Main content (2/3) */}
         <div className="md:col-span-2 space-y-4">
           <div>
             <label className="block text-sm font-semibold mb-1">Content</label>
             <input type="hidden" name="html" value={htmlContent} />
-            <RichTextEditor content={sitePage.html || ""} onChange={setHtmlContent} />
+            <RichTextEditor 
+              content={sitePage.html || ""} 
+              onChange={setHtmlContent}
+              userId={userId}
+              comicId={comic.id}
+              sitePageId={sitePage.id}
+            />
           </div>
         </div>
         
@@ -188,7 +227,9 @@ export default function SitePageEditor({ loaderData }: Route.ComponentProps) {
             </div>
             <div className="flex flex-col gap-2 pt-2">
               <button 
-                type="submit" 
+                type="submit"
+                name="intent"
+                value="updateSitePage"
                 disabled={isSubmitting}
                 className="rounded-md bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -200,6 +241,20 @@ export default function SitePageEditor({ loaderData }: Route.ComponentProps) {
               >
                 Cancel
               </Link>
+              <button
+                type="submit"
+                name="intent"
+                value="deleteSitePage"
+                onClick={(e) => {
+                  if (!confirm('Are you sure you want to delete this page? This action cannot be undone.')) {
+                    e.preventDefault();
+                    return false;
+                  }
+                }}
+                className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-center"
+              >
+                Delete Page
+              </button>
             </div>
           </div>
         </div>

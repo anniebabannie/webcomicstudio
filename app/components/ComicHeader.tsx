@@ -43,12 +43,15 @@ export function ComicHeader({
   const queryString = previewParams ? `?${previewParams}` : "";
 
   return (
-    <header className="bg-gray-950 border-b border-gray-800 px-4 py-3">
+  <header 
+    className="border-b border-[var(--border)] px-4 py-3"
+    style={{ background: 'var(--nav-bg)' }}
+  >
       <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link
             to={`/${queryString}`}
-            className="text-white hover:text-gray-300 transition flex items-center gap-3"
+            className="text-[var(--nav-text)] hover:text-[var(--link-hover)] transition flex items-center gap-3"
           >
             {comic.logo ? (
               <img src={comic.logo} alt={comic.title} className="max-h-[28px]" />
@@ -57,7 +60,7 @@ export function ComicHeader({
             )}
           </Link>
           {comic.tagline && (
-            <p className="text-sm text-gray-400 hidden sm:block">
+            <p className="text-sm text-[var(--link)] hidden sm:block">
               {comic.tagline.slice(0, 80)}
               {comic.tagline.length > 80 ? "..." : ""}
             </p>
@@ -72,12 +75,12 @@ export function ComicHeader({
                 <Link
                   key={sp.slug}
                   to={`/${sp.slug}${queryString}`}
-                  className="text-gray-300 hover:text-white"
+                  className="text-[var(--link)] hover:text-[var(--link-hover)]"
                 >
                   {sp.linkText}
                 </Link>
               ))}
-              {publishedChapters.length > 0 && <span className="text-gray-400">•</span>}
+              {publishedChapters.length > 0 && <span className="text-[var(--link)]">•</span>}
             </>
           )}
 
@@ -94,7 +97,7 @@ export function ComicHeader({
                     window.location.href = `/${selectedChapter.id}/1${queryString}`;
                   }
                 }}
-                className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-[var(--border)] text-[var(--nav-text)] border border-[var(--border)] rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 {publishedChapters.map((ch) => (
                   <option key={ch.id} value={ch.id}>
@@ -102,7 +105,7 @@ export function ComicHeader({
                   </option>
                 ))}
               </select>
-              <span className="text-gray-400">•</span>
+              <span className="text-[var(--link)]">•</span>
               <select
                 value={currentPageNumber || ""}
                 onChange={(e) => {
@@ -113,7 +116,7 @@ export function ComicHeader({
                     window.location.href = `/${chapterId}/${pageNum}${queryString}`;
                   }
                 }}
-                className="bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-[var(--border)] text-[var(--nav-text)] border border-[var(--border)] rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">--</option>
                 {(() => {

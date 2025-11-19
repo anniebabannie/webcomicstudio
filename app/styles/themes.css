@@ -1,0 +1,135 @@
+/* CSS variables for themes. Use with Tailwind arbitrary values, e.g. bg-[--page-bg] */
+
+:root {
+  /* Base defaults (match stone theme) */
+  --page-bg: #1c1917;     /* stone-900 */
+  --page-bg-image: none;  /* optional layered gradient */
+  --text: #f5f5f4;        /* stone-100 */
+  --link: #d6d3d1;        /* stone-300 */
+  --link-hover: #ffffff;  /* white */
+  --border: #292524;      /* stone-800 */
+  --nav-bg: #0c0a09;      /* stone-950 */
+  --nav-text: #ffffff;    /* white */
+  --button-bg: #57534e;   /* stone-600 */
+  --button-text: #ffffff; /* white */
+}
+
+/* Navy theme based on current public-site styling */
+:root[data-theme='navy'] {
+  --page-bg: #111827;     /* gray-900 base (deep slate) */
+  /* Layered navy/indigo blobs with soft falloffs for an amorphous look */
+  --page-bg-image:
+    radial-gradient(80% 60% at 10% 12%, rgba(30,27,75,0.38) 0%, rgba(30,27,75,0.22) 35%, rgba(30,27,75,0.00) 70%),   /* indigo-950 */
+    radial-gradient(55% 65% at 90% 8%,  rgba(49,46,129,0.30) 0%, rgba(49,46,129,0.16) 40%, rgba(49,46,129,0.00) 75%), /* indigo-900 */
+    radial-gradient(60% 50% at 82% 78%, rgba(23,37,84,0.34) 0%,  rgba(23,37,84,0.18) 38%,  rgba(23,37,84,0.00) 72%),  /* blue-950  */
+    radial-gradient(75% 70% at 18% 88%, rgba(30,58,138,0.26) 0%, rgba(30,58,138,0.14) 34%, rgba(30,58,138,0.00) 68%), /* blue-900  */
+    radial-gradient(45% 50% at 58% 50%, rgba(79,70,229,0.18) 0%,  rgba(79,70,229,0.08) 32%,  rgba(79,70,229,0.00) 62%),/* indigo-600 accent */
+    radial-gradient(35% 40% at 40% 22%, rgba(3,7,18,0.25) 0%,     rgba(3,7,18,0.12) 28%,     rgba(3,7,18,0.00) 58%);   /* near-black shadow */
+  --text: #f3f4f6;        /* text-gray-100 */
+  --link: #d1d5db;        /* text-gray-300 */
+  --link-hover: #ffffff;  /* white */
+  --border: #1f2937;      /* border-gray-800/700 */
+  --nav-bg: #030712;      /* bg-gray-950 */
+  --nav-text: #ffffff;    /* white */
+  --button-bg: #4f46e5;   /* indigo-600 */
+  --button-text: #ffffff; /* white */
+}
+
+/* Stone theme: neutral dark stone */
+:root[data-theme='stone'] {
+  --page-bg: #1c1917;     /* stone-900 */
+  /* Layered stone/warm gray blobs with soft falloffs for subtle texture */
+  --page-bg-image:
+    radial-gradient(80% 60% at 8% 14%, rgba(68,64,60,0.35) 0%, rgba(68,64,60,0.20) 36%, rgba(68,64,60,0.00) 68%),    /* stone-700 */
+    radial-gradient(55% 65% at 88% 12%, rgba(41,37,36,0.32) 0%, rgba(41,37,36,0.18) 42%, rgba(41,37,36,0.00) 76%),   /* stone-800 */
+    radial-gradient(60% 50% at 80% 80%, rgba(87,83,78,0.28) 0%, rgba(87,83,78,0.16) 40%, rgba(87,83,78,0.00) 70%),   /* stone-600 */
+    radial-gradient(75% 70% at 20% 85%, rgba(28,25,23,0.30) 0%, rgba(28,25,23,0.16) 35%, rgba(28,25,23,0.00) 66%),   /* stone-900 */
+    radial-gradient(45% 50% at 55% 48%, rgba(120,113,108,0.18) 0%, rgba(120,113,108,0.09) 34%, rgba(120,113,108,0.00) 62%), /* stone-500 subtle accent */
+    radial-gradient(35% 40% at 38% 24%, rgba(12,10,9,0.28) 0%, rgba(12,10,9,0.14) 30%, rgba(12,10,9,0.00) 60%);      /* stone-950 shadow */
+  --text: #f5f5f4;        /* stone-100 */
+  --link: #d6d3d1;        /* stone-300 */
+  --link-hover: #ffffff;  /* white */
+  --border: #292524;      /* stone-800 */
+  --nav-bg: #0c0a09;      /* stone-950 */
+  --nav-text: #ffffff;    /* white */
+  --button-bg: #57534e;   /* stone-600 */
+  --button-text: #ffffff; /* white */
+}
+
+/* Back-compat: map old 'gray' theme name to stone tokens */
+:root[data-theme='gray'] {
+  --page-bg: #111827;     /* gray-900 base (deep slate) */
+  /* Layered navy/indigo blobs with soft falloffs for an amorphous look */
+  --page-bg-image:
+    radial-gradient(80% 60% at 10% 12%, rgba(30,27,75,0.38) 0%, rgba(30,27,75,0.22) 35%, rgba(30,27,75,0.00) 70%),   /* indigo-950 */
+    radial-gradient(55% 65% at 90% 8%,  rgba(49,46,129,0.30) 0%, rgba(49,46,129,0.16) 40%, rgba(49,46,129,0.00) 75%), /* indigo-900 */
+    radial-gradient(60% 50% at 82% 78%, rgba(23,37,84,0.34) 0%,  rgba(23,37,84,0.18) 38%,  rgba(23,37,84,0.00) 72%),  /* blue-950  */
+    radial-gradient(75% 70% at 18% 88%, rgba(30,58,138,0.26) 0%, rgba(30,58,138,0.14) 34%, rgba(30,58,138,0.00) 68%), /* blue-900  */
+    radial-gradient(45% 50% at 58% 50%, rgba(79,70,229,0.18) 0%,  rgba(79,70,229,0.08) 32%,  rgba(79,70,229,0.00) 62%),/* indigo-600 accent */
+    radial-gradient(35% 40% at 40% 22%, rgba(3,7,18,0.25) 0%,     rgba(3,7,18,0.12) 28%,     rgba(3,7,18,0.00) 58%);   /* near-black shadow */
+  --text: #f3f4f6;        /* text-gray-100 */
+  --link: #d1d5db;        /* text-gray-300 */
+  --link-hover: #ffffff;  /* white */
+  --border: #1f2937;      /* border-gray-800/700 */
+  --nav-bg: #030712;      /* bg-gray-950 */
+  --nav-text: #ffffff;    /* white */
+  --button-bg: #4f46e5;   /* indigo-600 */
+  --button-text: #ffffff; /* white */
+  --button-text: #ffffff; /* white */
+}
+
+/* Emerald theme: dark emerald surfaces with emerald accents */
+:root[data-theme='emerald'] {
+  --page-bg: var(--color-emerald-950);
+  /* Layered dark→medium emerald blobs with soft falloffs & varied placement */
+  --page-bg-image:
+    radial-gradient(80% 60% at 8% 12%, color-mix(in srgb, var(--color-emerald-800) 38%, transparent) 0%, color-mix(in srgb, var(--color-emerald-800) 24%, transparent) 35%, transparent 70%),
+    radial-gradient(55% 65% at 88% 10%, color-mix(in srgb, var(--color-emerald-600) 30%, transparent) 0%, color-mix(in srgb, var(--color-emerald-600) 18%, transparent) 40%, transparent 75%),
+    radial-gradient(60% 50% at 82% 78%, color-mix(in srgb, var(--color-emerald-700) 32%, transparent) 0%, color-mix(in srgb, var(--color-emerald-700) 18%, transparent) 38%, transparent 72%),
+    radial-gradient(75% 70% at 18% 88%, color-mix(in srgb, var(--color-emerald-900) 30%, transparent) 0%, color-mix(in srgb, var(--color-emerald-900) 16%, transparent) 34%, transparent 68%),
+    radial-gradient(45% 50% at 58% 50%, color-mix(in srgb, var(--color-emerald-500) 20%, transparent) 0%, color-mix(in srgb, var(--color-emerald-500) 10%, transparent) 32%, transparent 62%),
+    radial-gradient(35% 40% at 40% 22%, color-mix(in srgb, var(--color-emerald-950) 35%, transparent) 0%, color-mix(in srgb, var(--color-emerald-950) 18%, transparent) 30%, transparent 60%);
+  --text: var(--color-emerald-50);
+  --link: var(--color-emerald-200);
+  --link-hover: var(--color-white);
+  --border: var(--color-emerald-950);
+  --nav-bg: linear-gradient(to bottom, var(--color-emerald-900), var(--color-emerald-950));
+  --nav-text: var(--color-white);
+  --button-bg: var(--color-emerald-600);
+  --button-text: var(--color-white);
+}
+
+/* Back-compat: map old 'green' theme name to emerald */
+:root[data-theme='green'] {
+  --page-bg: #022c22;     /* emerald-950 */
+  /* Layered dark→medium emerald blobs with soft falloffs & varied placement */
+  --page-bg-image:
+    radial-gradient(80% 60% at 8% 12%, rgba(6,95,70,0.38) 0%, rgba(6,95,70,0.24) 35%, rgba(6,95,70,0.00) 70%),   /* emerald-800 */
+    radial-gradient(55% 65% at 88% 10%, rgba(5,150,105,0.30) 0%, rgba(5,150,105,0.18) 40%, rgba(5,150,105,0.00) 75%),/* emerald-600 */
+    radial-gradient(60% 50% at 82% 78%, rgba(4,120,87,0.32) 0%, rgba(4,120,87,0.18) 38%, rgba(4,120,87,0.00) 72%),  /* emerald-700 */
+    radial-gradient(75% 70% at 18% 88%, rgba(6,78,59,0.30) 0%, rgba(6,78,59,0.16) 34%, rgba(6,78,59,0.00) 68%),    /* emerald-900 */
+    radial-gradient(45% 50% at 58% 50%, rgba(16,185,129,0.20) 0%, rgba(16,185,129,0.10) 32%, rgba(16,185,129,0.00) 62%),/* emerald-500 */
+    radial-gradient(35% 40% at 40% 22%, rgba(2,44,34,0.35) 0%, rgba(2,44,34,0.18) 30%, rgba(2,44,34,0.00) 60%);      /* emerald-950 tint */
+  --text: #ecfdf5;        /* emerald-50 */
+  --link: #a7f3d0;        /* emerald-200 */
+  --link-hover: #ffffff;  /* white */
+  --border: #064e3b;      /* emerald-700 */
+  --nav-bg: linear-gradient(to bottom, #022c22, #065f46);  /* emerald-950 to emerald-800 */
+  --nav-text: #ffffff;    /* white */
+  --button-bg: #059669;   /* emerald-600 */
+  --button-text: #ffffff; /* white */
+}
+
+/* Brown theme: dark brown with warm amber accents */
+:root[data-theme='brown'] {
+  --page-bg: #292524;     /* stone-800 */
+  --page-bg-image: none;
+  --text: #fffbeb;        /* amber-50 */
+  --link: #fde68a;        /* amber-200 */
+  --link-hover: #ffffff;  /* white */
+  --border: #44403a;      /* stone-700 */
+  --nav-bg: #1c1917;      /* stone-900 */
+  --nav-text: #ffffff;    /* white */
+  --button-bg: #d97706;   /* amber-600 */
+  --button-text: #ffffff; /* white */
+}

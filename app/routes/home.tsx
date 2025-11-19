@@ -1,6 +1,7 @@
 import type { Route } from "./+types/home";
 import { SignedOut, SignInButton, SignUpButton } from '@clerk/react-router';
 import { Link, redirect } from 'react-router';
+import { useEffect } from 'react';
 import { extractSubdomain } from '../utils/subdomain.server';
 import { prisma } from '../utils/db.server';
 import { NavBar } from '../components/NavBar';
@@ -70,6 +71,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         thumbnail: true,
         logo: true,
         favicon: true,
+        theme: true,
         doubleSpread: true,
         chapters: {
           select: {
@@ -113,6 +115,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           thumbnail: true,
           logo: true,
           favicon: true,
+          theme: true,
           doubleSpread: true,
           chapters: {
             select: {
@@ -194,6 +197,30 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   // If this is a comic subdomain, show public comic homepage
   if (loaderData.type === 'comic') {
   const { comic, sitePages = [] } = loaderData as typeof loaderData & { sitePages?: { linkText: string; slug: string }[] };
+
+    // Apply theme via data-theme attribute and comic-theme class
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const mod = await import('../themes');
+          const name = mod.resolveThemeName((comic as any).theme as string | undefined);
+          if (!cancelled) {
+            document.documentElement.setAttribute('data-theme', name);
+            document.body.classList.add('comic-theme');
+          }
+        } catch {
+          if (!cancelled) {
+            document.documentElement.setAttribute('data-theme', 'navy');
+            document.body.classList.add('comic-theme');
+          }
+        }
+      })();
+      return () => { 
+        cancelled = true;
+        document.body.classList.remove('comic-theme');
+      };
+    }, [/* comic id/theme */ (comic as any).theme]);
     
     // Get preview params from URL
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -218,7 +245,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     }
     
     return (
-      <div className="min-h-screen bg-gray-900 flex flex-col">
+  <div className="min-h-screen text-[var(--text)] flex flex-col">
         <ComicHeader
           comic={comic}
           chapters={comic.chapters}
@@ -227,7 +254,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         />
 
         {/* Main content - centered cover */}
-        <main className="flex-1 flex items-center justify-center p-4">
+  <main className="flex-1 flex items-center justify-center p-4">
           {comic.thumbnail ? (
             firstPageUrl ? (
               <Link to={firstPageUrl} className="block relative group">
@@ -237,7 +264,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                   className="max-h-[90vh] w-auto"
                 />
                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition">
-                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-gray-900/90 px-6 py-3 rounded-lg text-base font-semibold transition shadow-xl">
+                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-gray-900/90 px-6 py-3 rounded-lg text-base font-semibold transition shadow-xl text-gray-900">
                     Start Reading →
                   </span>
                 </div>
@@ -251,27 +278,27 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             )
           ) : firstPageUrl ? (
             <Link to={firstPageUrl} className="block relative group">
-              <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-gray-700 bg-gray-900 flex items-center justify-center">
-                <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-gray-100">
+              <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-[var(--border)] bg-[var(--page-bg)] flex items-center justify-center">
+                <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text)]">
                   {comic.title}
                 </h2>
                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition">
-                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-gray-900/90 px-6 py-3 rounded-lg text-base font-semibold transition shadow-xl">
+                  <span className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-gray-900/90 px-6 py-3 rounded-lg text-base font-semibold transition shadow-xl text-gray-900">
                     Start Reading →
                   </span>
                 </div>
               </div>
             </Link>
           ) : (
-            <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-gray-700 bg-gray-900 flex items-center justify-center">
-              <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-gray-100">
+            <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-[var(--border)] bg-[var(--page-bg)] flex items-center justify-center">
+              <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text)]">
                 {comic.title}
               </h2>
             </div>
           )}
         </main>
 
-        <ComicFooter baseDomain={loaderData.baseDomain} />
+        <ComicFooter baseDomain={loaderData.baseDomain} comicId={comic.id} />
       </div>
     );
   }

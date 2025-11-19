@@ -68,6 +68,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       tagline: string | null;
     logo: string | null;
     favicon: string | null;
+    theme?: string | null;
     doubleSpread: boolean;
     chapters: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number }[] }[];
   };
@@ -82,7 +83,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           tagline: true,
         logo: true,
         favicon: true,
-        doubleSpread: true,
+  doubleSpread: true,
+  theme: true,
         chapters: {
           orderBy: { number: "asc" },
           select: { 
@@ -110,7 +112,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           tagline: true,
         logo: true,
         favicon: true,
-        doubleSpread: true,
+  doubleSpread: true,
+  theme: true,
         chapters: {
           orderBy: { number: "asc" },
           select: { 
@@ -321,6 +324,29 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
   const { comic, chapter, page, pages, spreadStart, pageNumbers, prevPage, nextPage, nextChapterFirstPage, prevChapterLastPage, sitePages = [], baseDomain } = data;
   const isDouble = !!comic.doubleSpread;
   const currentSpreadStart = isDouble && spreadStart ? spreadStart : page.number;
+  // Apply theme and comic-theme class
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import('../themes');
+        const name = mod.resolveThemeName((comic as any).theme as string | undefined);
+        if (!cancelled) {
+          document.documentElement.setAttribute('data-theme', name);
+          document.body.classList.add('comic-theme');
+        }
+      } catch {
+        if (!cancelled) {
+          document.documentElement.setAttribute('data-theme', 'navy');
+          document.body.classList.add('comic-theme');
+        }
+      }
+    })();
+    return () => { 
+      cancelled = true;
+      document.body.classList.remove('comic-theme');
+    };
+  }, [(comic as any).theme]);
 
   // Get preview params from URL
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -344,7 +370,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
   }, [isDouble, chapter.id, currentSpreadStart]);
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+  <div className="min-h-screen text-[var(--text)] flex flex-col">
       <ComicHeader
         comic={comic}
         chapters={comic.chapters}
@@ -355,7 +381,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
       />
 
       {/* Comic image with side navigation */}
-      <main className="flex-1 flex items-center justify-center p-4">
+  <main className="flex-1 flex items-center justify-center p-4">
         {/* Compute navigation URLs */}
         {(() => {
           const prevUrl = prevPage
@@ -372,7 +398,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
               {prevUrl ? (
                 <Link
                   to={prevUrl}
-                  className="p-2 md:p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition shadow-lg flex-shrink-0"
+                  className="p-2 md:p-3 rounded-full bg-[var(--border)] hover:bg-[var(--button-bg)] text-[var(--button-text)] transition shadow-lg flex-shrink-0"
                   aria-label="Previous"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 md:w-6 md:h-6">
@@ -438,7 +464,7 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
               {nextUrl ? (
                 <Link
                   to={nextUrl}
-                  className="p-2 md:p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition shadow-lg flex-shrink-0"
+                  className="p-2 md:p-3 rounded-full bg-[var(--border)] hover:bg-[var(--button-bg)] text-[var(--button-text)] transition shadow-lg flex-shrink-0"
                   aria-label="Next"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 md:w-6 md:h-6">
@@ -453,7 +479,12 @@ export default function ComicPage({ loaderData }: Route.ComponentProps) {
         })()}
       </main>
 
-      <ComicFooter baseDomain={baseDomain} />
+      <ComicFooter 
+        baseDomain={baseDomain} 
+        comicId={comic.id} 
+        chapterId={chapter.id}
+        pageNumbers={pages?.map(p => p.number) || [page.number]}
+      />
     </div>
   );
 }

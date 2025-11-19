@@ -39,6 +39,7 @@ export async function loader(args: Route.LoaderArgs) {
       title: true,
       description: true,
       tagline: true,
+      theme: true,
       slug: true,
       domain: true,
       thumbnail: true,
@@ -121,6 +122,7 @@ export async function action(args: Route.ActionArgs) {
     
     const slug = formData.get("slug") as string | null;
     const domain = formData.get("domain") as string | null;
+    const themeRaw = (formData.get("theme") as string | null) || null;
     const taglineRaw = formData.get("tagline") as string | null;
     const tagline = taglineRaw ? taglineRaw.slice(0, 80) : null; // enforce max 80 chars
     const description = formData.get("description") as string | null;
@@ -142,6 +144,12 @@ export async function action(args: Route.ActionArgs) {
       description: description || null,
       doubleSpread,
     };
+
+    // Theme update: store trimmed value, fallback to 'default' when empty
+    if (typeof themeRaw === 'string') {
+      const t = themeRaw.trim();
+      updates.theme = t || 'default';
+    }
     
     // Handle domain changes with certificate management
     const trimmedDomain = domain?.trim().toLowerCase() || null;
@@ -1080,6 +1088,22 @@ export default function ComicDetail({ loaderData }: Route.ComponentProps) {
                 })()
               ) : (
                 <p className="mt-1 text-gray-500 dark:text-gray-400 text-sm">No custom domain</p>
+              )}
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase">Theme</h2>
+              {isEditing ? (
+                <input
+                  type="text"
+                  name="theme"
+                  defaultValue={(comic as any).theme || ''}
+                  placeholder="e.g. navy, green, default"
+                  className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                />
+              ) : (
+                <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                  {(comic as any).theme || 'default'}
+                </p>
               )}
             </div>
             <div>

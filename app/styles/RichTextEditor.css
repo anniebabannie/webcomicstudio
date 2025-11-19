@@ -60,10 +60,10 @@
 }
 .ProseMirror a,
 .site-page-content a {
-  color: rgb(79 70 229);
+  color: var(--link);
   text-decoration: underline;
 }
 .ProseMirror a:hover,
 .site-page-content a:hover {
-  color: rgb(67 56 202);
+  color: var(--link-hover);
 }

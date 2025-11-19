@@ -329,6 +329,7 @@ export default function ChapterDetail({ loaderData }: Route.ComponentProps) {
   if (!data) throw new Response("Not Found", { status: 404 });
 
   const { comic, chapter } = data;
+
   const publishedDateValue = chapter.publishedDate ? new Date(chapter.publishedDate) : null;
   const publishedDateISO = publishedDateValue ? publishedDateValue.toISOString().slice(0,10) : "";
   const location = useLocation();

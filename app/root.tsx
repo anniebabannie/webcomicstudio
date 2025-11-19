@@ -8,10 +8,10 @@ import {
 } from "react-router";
 import { clerkMiddleware, rootAuthLoader } from '@clerk/react-router/server'
 import { ClerkProvider } from '@clerk/react-router'
-import { NavBar } from './components/NavBar'
 
 import type { Route } from "./+types/root";
 import "./app.css";
+import "./styles/themes.css";
 
 export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()]
 export const loader = (args: Route.LoaderArgs) => rootAuthLoader(args)

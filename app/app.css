@@ -9,9 +9,21 @@
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
-
   @media (prefers-color-scheme: dark) {
     color-scheme: dark;
   }
+}
+
+/* Apply theme styling only to public comic pages */
+body.comic-theme {
+  /* Use theme variables for page base */
+  @apply bg-[--page-bg] text-[--text];
+  /* Explicit fallback color to avoid flashes */
+  background-color: var(--page-bg);
+  /* Allow themes to provide an optional gradient/image overlay */
+  background-image: var(--page-bg-image, none);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: cover;
+  background-position: center;
 }

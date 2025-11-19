@@ -13,10 +13,13 @@ export default [
     ]),
     // API routes
     route("api/og-image/:comicId", "routes/api.og-image.$comicId.tsx"),
+    route("api/upload-image", "routes/api.upload-image.tsx"),
     // Standalone page route
     route("page/:pageNumber", "routes/page.$pageNumber.tsx"),
     // Public site page route by slug (single segment)
     route(":slug", "routes/$slug.tsx"),
     // Public comic reader routes (most general last - catch-all)
     route(":chapterId/:pageNumber", "routes/$chapterId.$pageNumber.tsx"),
+  // Report an issue page
+  route("report", "routes/report.tsx"),
 ] satisfies RouteConfig;

@@ -1,16 +1,22 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
-import { useEffect } from 'react';
+import Image from '@tiptap/extension-image';
+import { useEffect, useRef } from 'react';
 import { MarkButton } from './tiptap-ui/mark-button';
 import '../styles/RichTextEditor.css';
 
 interface RichTextEditorProps {
   content: string;
   onChange: (html: string) => void;
+  userId: string;
+  comicId: string;
+  sitePageId: string;
 }
 
-export function RichTextEditor({ content, onChange }: RichTextEditorProps) {
+export function RichTextEditor({ content, onChange, userId, comicId, sitePageId }: RichTextEditorProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -18,6 +24,11 @@ export function RichTextEditor({ content, onChange }: RichTextEditorProps) {
         openOnClick: false,
         HTMLAttributes: {
           class: 'text-indigo-600 hover:text-indigo-700 underline',
+        },
+      }),
+      Image.configure({
+        HTMLAttributes: {
+          class: 'max-w-full h-auto rounded',
         },
       }),
     ],
@@ -39,6 +50,31 @@ export function RichTextEditor({ content, onChange }: RichTextEditorProps) {
       editor.commands.setContent(content);
     }
   }, [editor, content]);
+
+  const handleImageUpload = async (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('userId', userId);
+    formData.append('comicId', comicId);
+    formData.append('sitePageId', sitePageId);
+
+    try {
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await response.json();
+      editor?.chain().focus().setImage({ src: data.url }).run();
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Failed to upload image');
+    }
+  };
 
   if (!editor) {
     return null;
@@ -113,6 +149,30 @@ export function RichTextEditor({ content, onChange }: RichTextEditorProps) {
         >
           Numbered List
         </button>
+        <div className="w-px bg-gray-300 dark:bg-gray-700 mx-1" />
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            fileInputRef.current?.click();
+          }}
+          className="px-2 py-1 text-sm rounded bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700"
+        >
+          Image
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              handleImageUpload(file);
+            }
+            e.target.value = '';
+          }}
+        />
         <div className="w-px bg-gray-300 dark:bg-gray-700 mx-1" />
         <button
           type="button"

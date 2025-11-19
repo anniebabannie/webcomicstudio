@@ -1,10 +1,12 @@
 import type { Route } from "./+types/$slug";
 import { Link, redirect } from "react-router";
+import { useEffect } from "react";
 import { extractSubdomain } from "../utils/subdomain.server";
 import { prisma } from "../utils/db.server";
 import { ComicHeader } from "../components/ComicHeader";
 import { ComicFooter } from "../components/ComicFooter";
 import "../styles/RichTextEditor.css";
+import { resolveThemeName } from "../themes";
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.sitePage && data?.comic) {
@@ -42,6 +44,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     logo: string | null; 
     favicon: string | null;
     doubleSpread: boolean;
+    theme?: string;
     chapters: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number }[] }[];
   } = null;
   if (isCustomDomain) {
@@ -55,6 +58,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         logo: true, 
         favicon: true,
         doubleSpread: true,
+        theme: true,
         chapters: {
           select: {
             id: true,
@@ -85,6 +89,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         logo: true, 
         favicon: true,
         doubleSpread: true,
+        theme: true,
         chapters: {
           select: {
             id: true,
@@ -149,6 +154,7 @@ export default function SitePagePublic({ loaderData }: Route.ComponentProps) {
       tagline?: string | null;
       logo?: string | null;
       doubleSpread?: boolean;
+      theme?: string | null;
       chapters: { id: string; number: number; title: string; publishedDate: Date | null; pages: { id: string; number: number }[] }[];
     }; 
     sitePage: { linkText: string; html: string | null };
@@ -156,12 +162,22 @@ export default function SitePagePublic({ loaderData }: Route.ComponentProps) {
     baseDomain: string;
   };
 
+  // Apply theme to document and add comic-theme class
+  useEffect(() => {
+    const themeName = resolveThemeName((comic as any).theme);
+    document.documentElement.setAttribute('data-theme', themeName);
+    document.body.classList.add('comic-theme');
+    return () => {
+      document.body.classList.remove('comic-theme');
+    };
+  }, [comic]);
+
   // Get preview params from URL
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const previewParams = searchParams.toString();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100">
+    <div className="min-h-screen text-[var(--text)] flex flex-col">
       <ComicHeader
         comic={comic}
         chapters={comic.chapters}
@@ -169,14 +185,14 @@ export default function SitePagePublic({ loaderData }: Route.ComponentProps) {
         previewParams={previewParams}
       />
 
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      <main className="flex-1 mx-auto max-w-3xl px-4 py-8 w-full flex flex-col">
         <article className="site-page-content prose-invert prose max-w-none">
           {/* NOTE: Consider sanitizing HTML before rendering if user-generated */}
           <div dangerouslySetInnerHTML={{ __html: sitePage.html || "" }} />
         </article>
       </main>
 
-      <ComicFooter baseDomain={baseDomain} />
+      <ComicFooter baseDomain={baseDomain} comicId={comic.id} />
     </div>
   );
 }
