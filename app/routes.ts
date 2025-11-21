@@ -17,6 +17,9 @@ export default [
     // Standalone page route
     route("page/:pageNumber", "routes/page.$pageNumber.tsx"),
     // Public site page route by slug (single segment)
+  // Static legal/help pages (placed before slug catch-all)
+  route("terms", "routes/terms.tsx"),
+  route("adult-content-guidelines", "routes/adult-content-guidelines.tsx"),
     route(":slug", "routes/$slug.tsx"),
     // Public comic reader routes (most general last - catch-all)
     route(":chapterId/:pageNumber", "routes/$chapterId.$pageNumber.tsx"),

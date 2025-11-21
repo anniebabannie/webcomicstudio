@@ -8,7 +8,10 @@
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
     "db:generate": "dotenv -e .env -- prisma generate",
-    "db:migrate": "dotenv -e .env -- prisma migrate dev"
+    "db:migrate": "dotenv -e .env -- prisma migrate dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.928.0",
@@ -43,6 +46,7 @@
     "@types/node": "^22",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
+    "@vitest/ui": "^4.0.13",
     "dotenv-cli": "^11.0.0",
     "prisma": "^6.19.0",
     "sass-embedded": "^1.93.3",
@@ -50,7 +54,9 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.0.13",
+    "vitest-mock-extended": "^3.1.0"
   },
   "overrides": {
     "p-map": "^5.5.0"

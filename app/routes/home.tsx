@@ -7,6 +7,7 @@ import { prisma } from '../utils/db.server';
 import { NavBar } from '../components/NavBar';
 import { ComicHeader } from '../components/ComicHeader';
 import { ComicFooter } from '../components/ComicFooter';
+import { Button } from "~/components/Button";
 
 export function meta({ data }: Route.MetaArgs) {
   if (data?.comic) {
@@ -245,7 +246,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     }
     
     return (
-  <div className="min-h-screen text-[var(--text)] flex flex-col">
+  <div className="min-h-screen text-(--text) flex flex-col">
         <ComicHeader
           comic={comic}
           chapters={comic.chapters}
@@ -278,8 +279,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             )
           ) : firstPageUrl ? (
             <Link to={firstPageUrl} className="block relative group">
-              <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-[var(--border)] bg-[var(--page-bg)] flex items-center justify-center">
-                <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text)]">
+              <div className="relative h-[90vh] aspect-2/3 max-w-full rounded-lg border border-(--border) bg-(--page-bg) flex items-center justify-center">
+                <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-(--text)">
                   {comic.title}
                 </h2>
                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition">
@@ -290,8 +291,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               </div>
             </Link>
           ) : (
-            <div className="relative h-[90vh] aspect-[2/3] max-w-full rounded-lg border border-[var(--border)] bg-[var(--page-bg)] flex items-center justify-center">
-              <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text)]">
+            <div className="relative h-[90vh] aspect-2/3 max-w-full rounded-lg border border-(--border) bg-(--page-bg) flex items-center justify-center">
+              <h2 className="px-6 text-center text-2xl sm:text-3xl md:text-4xl font-bold text-(--text)">
                 {comic.title}
               </h2>
             </div>
@@ -307,95 +308,67 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   return(
     <>
       <NavBar />
-      <section className="relative overflow-hidden min-h-screen flex items-center">
-        {/* Background image with color overlay blend */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 pointer-events-none opacity-15"
-          style={{
-            backgroundImage: "linear-gradient(to bottom right, rgba(168, 85, 247, 1), rgba(236, 72, 153, 1)), url('/comic-collage.png')",
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            backgroundBlendMode: "screen"
-          }}
-        />
-        <div className="relative z-10 mx-auto max-w-6xl px-4 py-16 sm:py-24 w-full">
-        <div className="grid items-center gap-10 lg:grid-cols-2">
-          <div>
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-shadow-lg text-shadow-white">
-              Publish your webcomic in minutes
-            </h1>
-            <p className="mt-4 text-lg text-gray-600 dark:text-gray-300">
-              Create chapters, upload pages, and point your custom domain. We handle the site so you can focus on the story.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-4">
-              <SignedOut>
-                <SignUpButton mode="modal">
-                  <button className="inline-flex items-center justify-center rounded-md px-5 py-3 text-base font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition">
-                    Get started — it’s free
-                  </button>
-                </SignUpButton>
-                <SignInButton mode="modal">
-                  <button className="inline-flex items-center justify-center rounded-md px-5 py-3 text-base font-medium bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-700 dark:hover:bg-gray-800 transition">
-                    Sign in
-                  </button>
-                </SignInButton>
-              </SignedOut>
-              <Link to="#features" className="text-indigo-600 hover:underline text-base">
-                Learn more →
-              </Link>
-            </div>
+      <section className="overflow-hidden pt-52 h-screen min-h-[100px] max-h-[1100px] bg-cover bg-center -mt-[60px]" style={{ backgroundImage: 'url(/comic-collage.png)' }}>
+        <div className="mx-auto max-w-6xl px-4 w-full">
+          <div className="flex flex-col items-center text-center max-w-5xl mx-auto gap-8">
+            <h1>Publish your webcomic in seconds.</h1>
+            <p>The easiest place to build a website for your comic. <br/>Publish your first 100 pages for free, then it’s just $3.99/mo.</p>
+            <SignUpButton mode="modal" forceRedirectUrl="/dashboard">
+              <Button size="lg">Get Started for Free</Button>
+            </SignUpButton>
           </div>
-          <div className="relative">
-            <div className="aspect-[4/3] rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 shadow-sm flex flex-col">
-              {/* Mac style traffic light title bar */}
-              <div className="flex items-center gap-2 px-3 h-8 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-                <div className="flex items-center gap-1">
-                  <span className="h-3 w-3 rounded-full bg-[#ff5f56]"></span>
-                  <span className="h-3 w-3 rounded-full bg-[#ffbd2e]"></span>
-                  <span className="h-3 w-3 rounded-full bg-[#27c93f]"></span>
-                </div>
-                <div className="mx-auto text-xs text-gray-500 dark:text-gray-400 select-none tracking-tight">
-                  your-comic.webcomic.studio
-                </div>
-              </div>
-              {/* Window content */}
-              <div className="flex-1 flex flex-col">
-                {/* Fake site navigation */}
-                <div className="h-9 px-4 flex items-center text-sm bg-gray-50 dark:bg-gray-900/70 border-b border-gray-200 dark:border-gray-800">
-                  <span className="font-semibold text-gray-700 dark:text-gray-200 tracking-tight">Your Comic</span>
-                </div>
-                {/* Centered comic page placeholder */}
-                <div className="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-gray-100 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
-                  <div className="aspect-[2/3] w-40 sm:w-48 md:w-56 lg:w-64 max-h-full rounded-md border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 shadow-inner p-1 flex flex-col gap-1">
-                    {/* New top row: two panels */}
-                    <div className="flex gap-1">
-                      <div className="w-1/3 h-20 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                      <div className="w-2/3 h-20 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                    </div>
-                    {/* Middle row: 2 panels */}
-                    <div className="flex gap-1">
-                      <div className="w-2/3 h-16 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                      <div className="w-1/3 h-16 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                    </div>
-                    {/* Existing wide panel */}
-                    <div className="flex-1 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                    {/* Bottom row: 3 panels */}
-                    <div className="flex gap-1">
-                      <div className="flex-1 h-28 flex flex-col gap-1">
-                        <div className="flex-1 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                        <div className="flex-1 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                      </div>
-                      <div className="flex-1 h-28 border border-gray-300 dark:border-gray-600 rounded-sm bg-white dark:bg-gray-800" />
-                    </div>
-                  </div>
-                </div>
-              </div>
+          <div className="mt-16 flex justify-center pointer-none pointer-events-none">
+            <img
+              src="/comic-browser-demo.png"
+              alt="Comic browser demo"
+            />
+          </div>
+      </div>
+    </section>
+    <section className="py-16 sm:py-24">
+      <div className="mx-auto max-w-6xl px-4 w-full">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="flex flex-col items-center text-center">
+            <h3>Step 1</h3>
+            <p>Create a comic</p>
+          </div>
+          <div className="flex flex-col items-center text-center">
+            <h3>Step 2</h3>
+            <p>Upload pages</p>
+          </div>
+          <div className="flex flex-col items-center text-center">
+            <h3>Step 3</h3>
+            <p>Publish</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section className="py-16 sm:py-24" style={{ background: 'linear-gradient(135deg, rgba(221, 76, 209, 0.1), rgba(82, 55, 191, 0.1))' }}>
+      <div className="mx-auto max-w-6xl px-4 w-full">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          <div>
+            <h2>Bring your own domain</h2>
+            <p>Securely host your comic under your own domain.</p>
+            <p className="mt-4">Don't have a domain yet? Webcomic Studio gives you a subdomain for free at &lt;your-comic&gt;.webcomic.studio</p>
+          </div>
+          <div>
+            <div className="bg-white rounded-lg px-4 py-3 ring-2 ring-purple-300 text-gray-600">
+              https://myawesomecomic.com
             </div>
           </div>
         </div>
       </div>
     </section>
+    <footer className="py-10 border-t border-(--border) bg-(--bg)">
+      <div className="mx-auto max-w-6xl px-4 w-full text-center text-sm text-(--muted) flex flex-col gap-2">
+        <div>© {new Date().getFullYear()} Webcomic Studio · Build, publish & grow your comic.</div>
+        <div className="flex flex-wrap gap-4 justify-center">
+          <Link to="/terms" className="hover:underline">Terms of Service</Link>
+          <Link to="/adult-content-guidelines" className="hover:underline">Adult Content Guidelines</Link>
+          <Link to="/report" className="hover:underline">Report an issue</Link>
+        </div>
+      </div>
+    </footer>
     </>
   );
 }
